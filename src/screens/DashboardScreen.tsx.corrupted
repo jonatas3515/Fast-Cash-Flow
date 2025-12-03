@@ -1,0 +1,1599 @@
+import React from 'react';
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, useWindowDimensions, Platform, Alert, TextInput } from 'react-native';
+import { Svg, Rect, Line as SvgLine, Text as SvgText } from 'react-native-svg';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useThemeCtx } from '../theme/ThemeProvider';
+import { useI18n } from '../i18n/I18nProvider';
+import { useToast } from '../ui/ToastProvider';
+import { getCurrentCompanyId } from '../lib/company';
+import { supabase } from '../lib/supabase';
+import { todayYMD } from '../utils/date';
+import { getMonthlyTotals, getMonthlyDailySeries, getMonthlyWeeklySeries, getYearlyMonthlySeries, getTransactionsByMonth, Transaction } from '../repositories/transactions';
+import { getGoalByMonth, createGoal, updateGoal, getGoalsByCompany } from '../repositories/financial_goals';
+import { getOrCreateSettings } from '../repositories/dashboard_settings';
+import { listAllDebts } from '../repositories/debts';
+import { listRecurringExpenses, getNextOccurrence, RecurringExpense } from '../repositories/recurring_expenses';
+
+interface RecurringAlert {
+  id: string;
+  description: string;
+  category?: string | null;
+  amount_cents: number;
+  recurrence_type: string;
+  next_date: string; // YYYY-MM-DD
+  days_until: number;
+  isPaid: boolean;
+  paid_transaction_date?: string;
+}
+
+interface DashboardData {
+  income: number;
+  expenses: number;
+  balance: number;
+  totalDebts: number; // valor restante em dívidas
+  totalDebtsPaid: number;
+  totalDebtsTotal: number;
+  hasOverdueDebts: boolean;
+  goalProgress: { target: number; achieved: number; percent: number };
+  goalAlertThresholdPercent: number;
+  goalMotivationThresholdPercent: number;
+  dailySeries: { day: number; income_cents: number; expense_cents: number }[];
+  weeklySeries: { week: number; income_cents: number; expense_cents: number }[];
+  monthlySeries: { month: number; monthName: string; income_cents: number; expense_cents: number }[];
+  recurringAlerts: RecurringAlert[];
+  fixedRecurringExpenses_cents: number;
+  variableExpenses_cents: number;
+}
+
+export default function DashboardScreen({ navigation }: any) {
+  const { theme, mode } = useThemeCtx();
+  const { formatMoney } = useI18n();
+  const toast = useToast();
+  const { width } = useWindowDimensions();
+  const isWeb = Platform.OS === 'web';
+  const isWideWeb = isWeb && width >= 1024;
+  const qc = useQueryClient();
+  const [hasSeenOverdueModal, setHasSeenOverdueModal] = React.useState(false);
+
+  const [selectedMonth, setSelectedMonth] = React.useState(new Date());
+  const [weeklyChartMonth, setWeeklyChartMonth] = React.useState(new Date());
+  const [period, setPeriod] = React.useState<'month' | 'week' | 'day'>('month');
+  const [chartView, setChartView] = React.useState<'daily' | 'weekly' | 'monthly'>('daily');
+  const [selectedChartData, setSelectedChartData] = React.useState<{
+    type: 'daily' | 'weekly' | 'monthly';
+    index: number;
+    label: string;
+    income: number;
+    expense: number;
+  } | null>(null);
+  const [isGoalModalOpen, setIsGoalModalOpen] = React.useState(false);
+  const [goalInputValue, setGoalInputValue] = React.useState('');
+  const [goalDescription, setGoalDescription] = React.useState('');
+  const [savingGoal, setSavingGoal] = React.useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = React.useState(false);
+
+  const dashboardQuery = useQuery({
+    queryKey: ['dashboard', selectedMonth.toISOString().slice(0, 7)],
+    queryFn: async () => {
+      try {
+        const companyId = await getCurrentCompanyId();
+        if (!companyId) {
+          console.warn('[Dashboard] Company ID não encontrado');
+          throw new Error('Empresa não identificada. Faça login novamente.');
+        }
+
+        const year = selectedMonth.getFullYear();
+        const month = selectedMonth.getMonth() + 1;
+
+        console.log('[Dashboard] Carregando dados', { year, month, companyId });
+
+        // Obter configurações do dashboard (inclui thresholds configuráveis)
+        const settings = await getOrCreateSettings(companyId);
+
+        // Obter totais do mês (entradas/saídas/saldo)
+        const { income_cents, expense_cents, balance_cents } = await getMonthlyTotals(year, month);
+
+        // Obter série diária
+        const dailySeries = await getMonthlyDailySeries(year, month);
+
+        // Obter série mensal
+        const monthlySeries = await getYearlyMonthlySeries(year);
+
+        // Obter meta do mês
+        const monthStr = `${year}-${String(month).padStart(2, '0')}-01`;
+        const goal = await getGoalByMonth(companyId, monthStr);
+
+        const goalProgress = {
+          target: goal?.target_amount_cents || 0,
+          achieved: income_cents,
+          percent:
+            goal && goal.target_amount_cents > 0
+              ? Math.min(100, Math.round((income_cents * 100) / goal.target_amount_cents))
+              : 0,
+        };
+
+        // Obter total de dívidas (valores pagos, restantes e atraso)
+        const debts = await listAllDebts(companyId);
+        const today = todayYMD();
+        let totalDebtsTotal = 0;
+        let totalDebtsPaid = 0;
+        let totalDebtsRemaining = 0;
+        let hasOverdueDebts = false;
+
+        for (const debt of debts) {
+          const total = debt.total_cents || 0;
+          const paidCount = debt.paid_installments || 0;
+          const paid = paidCount * (debt.installment_cents || 0);
+          const remaining = Math.max(0, total - paid);
+          totalDebtsTotal += total;
+          totalDebtsPaid += paid;
+          totalDebtsRemaining += remaining;
+
+          const baseDate = (debt as any).invoice_due_date || debt.start_date || '';
+          const sParts = (baseDate || '').split('-').map((n: string) => parseInt(n, 10) || 0);
+          const tParts = (today || '').split('-').map((n: string) => parseInt(n, 10) || 0);
+          const monthsStart = sParts[0] * 12 + (sParts[1] - 1);
+          const monthsToday = tParts[0] * 12 + (tParts[1] - 1);
+          let elapsed = monthsToday - monthsStart;
+          if (
+            tParts[0] > sParts[0] ||
+            (tParts[0] === sParts[0] && tParts[1] > sParts[1]) ||
+            (tParts[0] === sParts[0] && tParts[1] === sParts[1] && tParts[2] > sParts[2])
+          ) {
+            elapsed = Math.max(0, elapsed + (tParts[2] > sParts[2] ? 1 : 0));
+          }
+          elapsed = Math.max(0, Math.min(debt.installment_count || 0, elapsed));
+          if (elapsed > paidCount) {
+            hasOverdueDebts = true;
+          }
+        }
+
+        // Despesas recorrentes: calcular próximas ocorrências e status pago x a pagar
+        const MS_PER_DAY = 24 * 60 * 60 * 1000;
+        const MAX_DAYS_AHEAD = 40; // mostrar até ~40 dias à frente
+        const MIN_DAYS_PAST = -10; // considerar até 10 dias de atraso
+        const WINDOW_BEFORE_DAYS = 5; // janela para buscar pagamento antes do vencimento
+        const WINDOW_AFTER_DAYS = 10; // janela para buscar pagamento após o vencimento
+        const AMOUNT_TOLERANCE_PERCENT = 0.08; // 8% de tolerância no valor
+        const MIN_TOLERANCE_CENTS = 200; // mínimo R$ 2,00 de tolerância
+
+        let recurringAlerts: RecurringAlert[] = [];
+        const matchedTxIds = new Set<string>();
+        let monthTransactions: Transaction[] = [];
+        try {
+          const recurring = await listRecurringExpenses();
+          monthTransactions = await getTransactionsByMonth(year, month);
+          const todayDate = new Date(`${today}T00:00:00`);
+
+          for (const rec of recurring as RecurringExpense[]) {
+            const nextDateObj = getNextOccurrence(rec, todayDate);
+            if (!nextDateObj) continue;
+
+            const daysUntil = Math.round(
+              (nextDateObj.getTime() - todayDate.getTime()) / MS_PER_DAY,
+            );
+
+            // Limitar a alertas à janela configurada (inclui leves atrasos)
+            if (daysUntil > MAX_DAYS_AHEAD || daysUntil < MIN_DAYS_PAST) continue;
+
+            const windowStart = new Date(nextDateObj.getTime() - WINDOW_BEFORE_DAYS * MS_PER_DAY);
+            const windowEnd = new Date(nextDateObj.getTime() + WINDOW_AFTER_DAYS * MS_PER_DAY);
+
+            const match = monthTransactions.find((tx) => {
+              if (tx.type !== 'expense') return false;
+              const txDate = new Date(`${tx.date}T00:00:00`);
+              if (txDate < windowStart || txDate > windowEnd) return false;
+
+              const descTx = (tx.description || '').toLowerCase().trim();
+              const descRec = (rec.description || '').toLowerCase().trim();
+              if (!descTx || !descRec) return false;
+              const matchesDescription =
+                descTx.includes(descRec) || descRec.includes(descTx);
+              if (!matchesDescription) return false;
+
+              const diff = Math.abs((tx.amount_cents || 0) - (rec.amount_cents || 0));
+              const tolerance = Math.max(
+                Math.round(rec.amount_cents * AMOUNT_TOLERANCE_PERCENT),
+                MIN_TOLERANCE_CENTS,
+              );
+              return diff <= tolerance;
+            });
+
+            recurringAlerts.push({
+              id: rec.id,
+              description: rec.description,
+              category: rec.category ?? null,
+              amount_cents: rec.amount_cents,
+              recurrence_type: rec.recurrence_type,
+              next_date: nextDateObj.toISOString().slice(0, 10),
+              days_until: daysUntil,
+              isPaid: !!match,
+              paid_transaction_date: match ? match.date : undefined,
+            });
+
+            if (match) {
+              matchedTxIds.add(match.id);
+            }
+          }
+
+          recurringAlerts.sort((a, b) => a.next_date.localeCompare(b.next_date));
+        } catch (e) {
+          console.warn('[Dashboard] Erro ao carregar despesas recorrentes', e);
+          recurringAlerts = [];
+        }
+
+        // Resumo de despesas fixas (recorrentes) vs variáveis no mês
+        let fixedRecurringExpenses_cents = 0;
+        for (const tx of monthTransactions) {
+          if (tx.type !== 'expense') continue;
+          if (matchedTxIds.has(tx.id)) {
+            fixedRecurringExpenses_cents += tx.amount_cents || 0;
+          }
+        }
+        const variableExpenses_cents = Math.max(0, expense_cents - fixedRecurringExpenses_cents);
+
+        return {
+          income: income_cents,
+          expenses: expense_cents,
+          balance: balance_cents,
+          totalDebts: totalDebtsRemaining,
+          totalDebtsPaid,
+          totalDebtsTotal,
+          hasOverdueDebts,
+          goalAlertThresholdPercent: settings.goal_alert_threshold_percent ?? 50,
+          goalMotivationThresholdPercent: settings.goal_motivation_threshold_percent ?? 80,
+          goalProgress,
+          dailySeries,
+          monthlySeries,
+          recurringAlerts,
+          fixedRecurringExpenses_cents,
+          variableExpenses_cents,
+        } as DashboardData;
+      } catch (err) {
+        console.error('[Dashboard] Erro ao carregar', err);
+        throw err;
+      }
+    },
+    retry: 2,
+    retryDelay: 3000,
+    staleTime: 5000,
+    refetchOnWindowFocus: true,
+    refetchInterval: 15000,
+  });
+
+  // Query para buscar transações recentes
+  const recentTransactionsQuery = useQuery({
+    queryKey: ['recent-transactions'],
+    queryFn: async () => {
+      try {
+        const companyId = await getCurrentCompanyId();
+        if (!companyId) return [];
+        
+        // Buscar transações dos últimos 3 meses para garantir ter as mais recentes
+        const today = new Date();
+        const threeMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 3, 1);
+        
+        const allTransactions = [];
+        
+        // Buscar transações mês a mês dos últimos 3 meses
+        for (let monthOffset = 0; monthOffset <= 3; monthOffset++) {
+          const targetDate = new Date(today.getFullYear(), today.getMonth() - monthOffset, 1);
+          const transactions = await getTransactionsByMonth(
+            targetDate.getFullYear(),
+            targetDate.getMonth() + 1
+          );
+          allTransactions.push(...transactions);
+        }
+        
+        // Retornar últimas 5 transações ordenadas por data e hora (mais recentes primeiro)
+        return allTransactions
+          .sort((a, b) => {
+            // Ordenar por data e hora (datetime se disponível, senão date)
+            const dateA = new Date(a.datetime || a.date);
+            const dateB = new Date(b.datetime || b.date);
+            return dateB.getTime() - dateA.getTime();
+          })
+          .slice(0, 5);
+      } catch (error) {
+        console.error('[Dashboard] Erro ao carregar transações recentes:', error);
+        return [];
+      }
+    },
+  });
+
+  // Query para dados semanais (separado para não afetar os cards)
+  const weeklyDataQuery = useQuery({
+    queryKey: ['weekly-data', weeklyChartMonth.toISOString().slice(0, 7)],
+    queryFn: async () => {
+      try {
+        const year = weeklyChartMonth.getFullYear();
+        const month = weeklyChartMonth.getMonth() + 1;
+        const weeklySeries = await getMonthlyWeeklySeries(year, month);
+        return { weeklySeries };
+      } catch (error) {
+        console.error('[Dashboard] Erro ao carregar dados semanais:', error);
+        return { weeklySeries: [] };
+      }
+    },
+    retry: 2,
+    retryDelay: 3000,
+    staleTime: 5000,
+  });
+
+  // Query para dados do mês anterior (comparação)
+  const previousMonthQuery = useQuery({
+    queryKey: ['dashboard-previous', selectedMonth.toISOString().slice(0, 7)],
+    queryFn: async () => {
+      try {
+        const companyId = await getCurrentCompanyId();
+        if (!companyId) return null;
+
+        const prevDate = new Date(selectedMonth);
+        prevDate.setMonth(prevDate.getMonth() - 1);
+        
+        const year = prevDate.getFullYear();
+        const month = prevDate.getMonth() + 1;
+
+        const { income_cents, expense_cents, balance_cents } = await getMonthlyTotals(year, month);
+        
+        return {
+          income: income_cents,
+          expenses: expense_cents,
+          balance: balance_cents,
+        };
+      } catch (error) {
+        console.error('[Dashboard] Erro ao carregar dados do mês anterior:', error);
+        return null;
+      }
+    },
+  });
+
+  const goalsHistoryQuery = useQuery({
+    queryKey: ['goals-history'],
+    enabled: isHistoryOpen,
+    queryFn: async () => {
+      const companyId = await getCurrentCompanyId();
+      if (!companyId) {
+        throw new Error('Empresa não identificada. Faça login novamente.');
+      }
+      const goals = await getGoalsByCompany(companyId);
+      const items: {
+        id: string;
+        month: string;
+        label: string;
+        target_cents: number;
+        achieved_cents: number;
+        percent: number;
+      }[] = [];
+
+      for (const g of goals) {
+        const d = new Date(g.month);
+        const year = d.getFullYear();
+        const month = d.getMonth() + 1;
+        const { income_cents } = await getMonthlyTotals(year, month);
+        const target = g.target_amount_cents || 0;
+        const achieved = income_cents || 0;
+        const percent = target > 0 ? Math.min(100, Math.round((achieved * 100) / target)) : 0;
+        const label = d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+        items.push({
+          id: g.id,
+          month: g.month,
+          label,
+          target_cents: target,
+          achieved_cents: achieved,
+          percent,
+        });
+      }
+
+      items.sort((a, b) => (a.month < b.month ? 1 : a.month > b.month ? -1 : 0));
+      return items;
+    },
+  });
+
+  const data = dashboardQuery.data;
+  const hasGoal = !!((data?.goalProgress?.target || 0) > 0);
+  const goalAlertThreshold = data?.goalAlertThresholdPercent ?? 50;
+  const goalMotivationThreshold = data?.goalMotivationThresholdPercent ?? 80;
+  const isNegativeBalance = data?.balance ? data.balance < 0 : false;
+  const isHighDebt = data?.totalDebts ? data.totalDebts > 50000000 : false; // R$ 500.000
+  const isLowGoalProgress = !!(data?.goalProgress && hasGoal && data.goalProgress.percent < goalAlertThreshold);
+  const goalPercent = data?.goalProgress.percent ?? 0;
+
+  const recurringAlerts = data?.recurringAlerts ?? [];
+  const recurringPaidCount = recurringAlerts.filter(a => a.isPaid).length;
+  const recurringUnpaidCount = recurringAlerts.length - recurringPaidCount;
+
+  const isSmallScreen = width < 480;
+  const isTabletOrDesktop = width >= 768;
+
+  const today = new Date();
+  const isCurrentMonth = selectedMonth.getFullYear() === today.getFullYear() && selectedMonth.getMonth() === today.getMonth();
+  
+  const monthShortNames = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const selectedYear = selectedMonth.getFullYear();
+  const selectedMonthIndex = selectedMonth.getMonth(); // 0-based
+  const daysInSelectedMonth = new Date(selectedYear, selectedMonthIndex + 1, 0).getDate();
+  const maxDayForDailyChart = isCurrentMonth ? today.getDate() : daysInSelectedMonth;
+  const currentYear = today.getFullYear();
+  const currentMonthIndex = today.getMonth();
+  const maxMonthForMonthlyChart =
+    selectedYear < currentYear
+      ? 12
+      : selectedYear > currentYear
+      ? 0
+      : currentMonthIndex + 1;
+
+  const getGoalBarColor = () => {
+    if (!hasGoal) return '#16A34A';
+    if (goalPercent < goalAlertThreshold) return '#ef4444'; // vermelho até threshold de alerta
+    if (goalPercent < goalMotivationThreshold) return '#f59e0b'; // amarelo entre alerta e motivacional
+    return '#16A34A'; // verde acima do threshold motivacional
+  };
+
+  // Função para calcular comparação percentual com mês anterior
+  const getComparisonPercent = (current: number, previous: number | null | undefined) => {
+    if (!previous || previous === 0) return null;
+    const percent = Math.round(((current - previous) / previous) * 100);
+    return percent;
+  };
+
+  const getComparisonDisplay = (current: number, previous: number | null | undefined) => {
+    const percent = getComparisonPercent(current, previous);
+    if (percent === null) return null;
+    
+    const isPositive = percent >= 0;
+    const sign = isPositive ? '↑' : '↓';
+    const color = isPositive ? '#059669' : '#dc2626';
+    
+    return {
+      text: `${sign} ${Math.abs(percent)}% vs. mês anterior`,
+      color,
+      isPositive
+    };
+  };
+
+  const handleAddTransaction = () => {
+    // Navegar para tela de adicionar transação
+    if (navigation?.navigate) {
+      // Usa a aba de Lançamentos como tela principal de inclusão
+      navigation.navigate('Lançamentos');
+    }
+  };
+
+  const handlePreviousMonth = () => {
+    const newDate = new Date(selectedMonth);
+    newDate.setMonth(newDate.getMonth() - 1);
+    setSelectedMonth(newDate);
+  };
+
+  const handleNextMonth = () => {
+    const newDate = new Date(selectedMonth);
+    newDate.setMonth(newDate.getMonth() + 1);
+    setSelectedMonth(newDate);
+  };
+
+  const monthLabel = selectedMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+
+  const isPastMonth =
+    selectedMonth.getFullYear() < today.getFullYear() ||
+    (selectedMonth.getFullYear() === today.getFullYear() && selectedMonth.getMonth() < today.getMonth());
+
+  const parseMoneyToCents = (value: string): number => {
+    const cleaned = (value || '')
+      .replace(/[^0-9.,]/g, '')
+      .replace(/\./g, '')
+      .replace(',', '.');
+    const num = parseFloat(cleaned);
+    if (!isFinite(num) || num <= 0) return 0;
+    return Math.round(num * 100);
+  };
+
+  const handleOpenGoalModal = () => {
+    if (!data) return;
+    if (data.goalProgress.target > 0) {
+      const currentValue = data.goalProgress.target / 100;
+      setGoalInputValue(currentValue.toFixed(2).replace('.', ','));
+    } else {
+      setGoalInputValue('');
+    }
+    setGoalDescription('');
+    setIsGoalModalOpen(true);
+  };
+
+  const handleSaveGoal = async () => {
+    try {
+      if (!data) return;
+      const companyId = await getCurrentCompanyId();
+      if (!companyId) {
+        toast.show('Empresa não identificada. Faça login novamente.', 'error');
+        return;
+      }
+
+      const year = selectedMonth.getFullYear();
+      const month = selectedMonth.getMonth() + 1;
+      const monthStr = `${year}-${String(month).padStart(2, '0')}-01`;
+
+      const amount_cents = parseMoneyToCents(goalInputValue);
+      if (amount_cents <= 0) {
+        toast.show('Informe um valor de meta válido (maior que zero).', 'error');
+        return;
+      }
+
+      setSavingGoal(true);
+
+      const existing = await getGoalByMonth(companyId, monthStr);
+      if (existing && existing.id) {
+        await updateGoal(existing.id, {
+          target_amount_cents: amount_cents,
+          description: goalDescription || existing.description,
+        });
+      } else {
+        await createGoal({
+          company_id: companyId,
+          month: monthStr,
+          target_amount_cents: amount_cents,
+          description: goalDescription || null,
+        } as any);
+      }
+
+      toast.show('Meta do mês salva com sucesso!', 'success');
+      setIsGoalModalOpen(false);
+      setGoalInputValue('');
+      setGoalDescription('');
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+    } catch (e) {
+      console.error('[Dashboard] Erro ao salvar meta', e);
+      toast.show('Falha ao salvar a meta. Tente novamente.', 'error');
+    } finally {
+      setSavingGoal(false);
+    }
+  };
+
+  const maxDailyValue = React.useMemo(() => {
+    if (!data || !data.dailySeries || data.dailySeries.length === 0) return 1;
+    return data.dailySeries.reduce((max, d) => {
+      const v = Math.max(d.income_cents || 0, d.expense_cents || 0);
+      return v > max ? v : max;
+    }, 1);
+  }, [data]);
+
+  return (
+    <View style={{ flex: 1, backgroundColor: theme.background }}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: 96, padding: 16, gap: 16 }}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Header */}
+        <View style={{ gap: 6 }}>
+          <Text style={[styles.title, { color: '#16a34a', textAlign: 'center' }]}>Dashboard Financeiro</Text>
+          <Text style={{ color: '#888', fontSize: 12, textAlign: 'center' }}>Acompanhe seu fluxo de caixa em tempo real</Text>
+        </View>
+
+        {/* Period Selector */}
+        <View style={{ gap: 12 }}>
+          <Text style={{ color: theme.text, fontWeight: '700', textAlign:'center', fontSize: 20 }}>Período</Text>
+          <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+            <TouchableOpacity
+              onPress={handlePreviousMonth}
+              style={{ paddingHorizontal: 12, paddingVertical: 8, backgroundColor: theme.card, borderRadius: 8 }}
+            >
+              <Text style={{ color: theme.text, fontWeight: '700' }}>←</Text>
+            </TouchableOpacity>
+            <Text style={{ color: theme.text, fontWeight: '700', flex: 1, textAlign: 'center' }}>
+              {monthLabel}
+            </Text>
+            <TouchableOpacity
+              onPress={handleNextMonth}
+              style={{ paddingHorizontal: 12, paddingVertical: 8, backgroundColor: theme.card, borderRadius: 8 }}
+            >
+              <Text style={{ color: theme.text, fontWeight: '700' }}>→</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={{ flexDirection: 'row', gap: 12, marginTop: 4 }}>
+            <TouchableOpacity
+              onPress={() => setSelectedMonth(new Date())}
+              style={{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: theme.card, borderRadius: 8 }}
+            >
+              <Text style={{ color: theme.text, fontSize: 15, fontWeight: '700' }}>Mês atual</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => {
+                const d = new Date();
+                d.setMonth(d.getMonth() - 1);
+                setSelectedMonth(d);
+              }}
+              style={{ paddingHorizontal: 15, paddingVertical: 6, backgroundColor: theme.card, borderRadius: 8 }}
+            >
+              <Text style={{ color: theme.text, fontSize: 15, fontWeight: '700' }}>Mês anterior</Text>
+            </TouchableOpacity>
+            {dashboardQuery.isFetching && (
+              <View style={{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: theme.card, borderRadius: 8 }}>
+                <Text style={{ color: '#888', fontSize: 12 }}>Atualizando…</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        {/* Loading State */}
+        {dashboardQuery.isLoading && (
+          <View style={{ padding: 20, alignItems: 'center' }}>
+            <Text style={{ color: '#888' }}>Carregando dados do dashboard…</Text>
+          </View>
+        )}
+
+        {/* Error State */}
+        {dashboardQuery.isError && (
+          <View
+            style={{
+              padding: 16,
+              backgroundColor: '#fee2e2',
+              borderRadius: 8,
+              borderWidth: 1,
+              borderColor: '#ef4444',
+              gap: 8,
+            }}
+          >
+            <Text style={{ color: '#991b1b', fontWeight: '700' }}>Erro ao carregar dashboard</Text>
+            <Text style={{ color: '#991b1b', fontSize: 12 }}>
+              Verifique sua conexão ou faça login novamente. Você também pode tentar recarregar.
+            </Text>
+            <TouchableOpacity
+              onPress={() => dashboardQuery.refetch()}
+              style={{
+                marginTop: 4,
+                alignSelf: 'flex-start',
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                backgroundColor: '#991b1b',
+                borderRadius: 6,
+              }}
+            >
+              <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>Tentar novamente</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Alertas Importantes */}
+        {data && (
+          <View style={{ gap: 8 }}>
+            {(isNegativeBalance || data?.hasOverdueDebts || (hasGoal && isLowGoalProgress) || recurringAlerts.some(a => a.days_until <= 3 && !a.isPaid)) && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <Text style={{ color: '#D90429', fontSize: 16 }}>⚠️</Text>
+                <Text style={{ color: theme.text, fontWeight: '700', fontSize: 16 }}>Alertas Importantes</Text>
+              </View>
+            )}
+            
+            {/* Alerta: Saldo Negativo */}
+            {isNegativeBalance && (
+              <View style={[styles.alertCard, { backgroundColor: '#FEE2E2', borderColor: '#EF4444' }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: '#991B1B', fontWeight: '700', fontSize: 14 }}>⚠️ Saldo Negativo</Text>
+                  <Text style={{ color: '#991B1B', fontSize: 12, marginTop: 2 }}>
+                    Seu saldo está negativo. É necessário tomar ação imediata.
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => navigation.navigate('Lançamentos')}
+                  style={{ backgroundColor: '#EF4444', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }}
+                >
+                  <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>Adicionar Entrada</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Alerta: Parcelas em Atraso */}
+            {data?.hasOverdueDebts && (
+              <View style={[styles.alertCard, { backgroundColor: '#FEF3C7', borderColor: '#F59E0B' }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: '#D97706', fontWeight: '700', fontSize: 14 }}>⚠️ Parcelas em Atraso</Text>
+                  <Text style={{ color: '#D97706', fontSize: 12, marginTop: 2 }}>
+                    Você tem parcelas de dívidas vencidas. Confirme os pagamentos.
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => navigation.navigate('Débitos')}
+                  style={{ backgroundColor: '#F59E0B', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }}
+                >
+                  <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>Ir para Débitos</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Alerta: Meta Baixa */}
+            {hasGoal && isLowGoalProgress && (
+              <View style={[styles.alertCard, { backgroundColor: '#FEE2E2', borderColor: '#EF4444' }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: '#991B1B', fontWeight: '700', fontSize: 14 }}>⚠️ Meta Abaixo do Esperado</Text>
+                  <Text style={{ color: '#991B1B', fontSize: 12, marginTop: 2 }}>
+                    Sua meta está abaixo de 50% para o mês. Ajuste suas metas.
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={handleOpenGoalModal}
+                  style={{ backgroundColor: '#EF4444', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }}
+                >
+                  <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>Ajustar Meta</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Alerta: Recorrentes Vencendo */}
+            {recurringAlerts.some(a => a.days_until <= 3 && !a.isPaid) && (
+              <View style={[styles.alertCard, { backgroundColor: '#FEF3C7', borderColor: '#F59E0B' }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: '#D97706', fontWeight: '700', fontSize: 14 }}>⚠️ Despesas Vencendo em Breve</Text>
+                  <Text style={{ color: '#D97706', fontSize: 12, marginTop: 2 }}>
+                    Você tem despesas recorrentes vencendo em menos de 3 dias.
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => navigation.navigate('Recorrentes')}
+                  style={{ backgroundColor: '#F59E0B', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }}
+                >
+                  <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>Ver Recorrentes</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Main Cards - Layout responsivo */}
+        {data && (
+          <>
+            {/* Layout Web: 4 cards em linha | Android: 3 linhas com 2 cards cada */}
+            {isTabletOrDesktop ? (
+              <View style={styles.summaryRow}>
+                {/* Saldo Atual - Web */}
+                <View
+                  style={[
+                    styles.summaryCard,
+                    {
+                      width: '23%',
+                      backgroundColor: isNegativeBalance ? '#fee2e2' : '#dcfce7',
+                      borderColor: isNegativeBalance ? '#ef4444' : '#16a34a',
+                      borderWidth: 1,
+                    },
+                  ]}
+                >
+                  <Text style={{ color: '#166534', fontWeight: '700', fontSize: 12, textAlign:'center' }} numberOfLines={1}>
+                    💰 Saldo Atual
+                  </Text>
+                  <Text
+                    style={{
+                      color: isNegativeBalance ? '#991b1b' : '#166534',
+                      fontSize: 22,
+                      fontWeight: '800',
+                      marginTop: 8,
+                      textAlign:'center'
+                    }}
+                  >
+                    {formatMoney(data?.balance || 0)}
+                  </Text>
+                  {isNegativeBalance && (
+                    <Text style={{ color: '#991b1b', fontSize: 9, marginTop: 3, textAlign:'center' }}>⚠️ Saldo negativo</Text>
+                  )}
+                        : isHighDebt
+                        ? '⚠️ Acima do limite'
+                        : 'Dentro do limite'}
+                    </Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end', minWidth: 70 }}>
+                    <Text style={{ color: isHighDebt ? '#92400e' : '#111827', fontSize: isSmallScreen ? 16 : 18, fontWeight: '800' }} numberOfLines={1}>
+                      {formatMoney(data?.totalDebts || 0)}
+                    </Text>
+                    <View style={{ flexDirection: 'column', gap: 2, marginTop: 4 }}>
+                      <Text style={{ color: '#6b7280', fontSize: isSmallScreen ? 9 : 10, textAlign: 'right' }} numberOfLines={1}>Pago: {formatMoney(data?.totalDebtsPaid || 0)}</Text>
+                      <Text style={{ color: '#059669', fontSize: isSmallScreen ? 9 : 10, textAlign: 'right' }} numberOfLines={1}>Restante: {formatMoney(data?.totalDebts || 0)}</Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
+
+              {/* Card Meta Financeira */}
+              <View
+                style={[
+                  styles.card,
+                  {
+                    flex: 1,
+                    backgroundColor: '#fef2f2',
+                    borderColor: hasGoal ? (isLowGoalProgress ? '#ef4444' : '#10b981') : '#d1d5db',
+                    borderWidth: 1,
+                  },
+                ]}
+              >
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <View style={{ flex: 1, marginRight: 8 }}>
+                    <Text style={{ color: '#111827', fontWeight: '700', fontSize: isSmallScreen ? 13 : 14 }} numberOfLines={1}>🎯 Meta Financeira</Text>
+                    {!hasGoal && (
+                      <Text style={{ color: '#6b7280', fontSize: isSmallScreen ? 9 : 10 }} numberOfLines={2}>
+                        Nenhuma meta definida para {monthLabel}. Defina uma meta.
+                      </Text>
+                    )}
+                  </View>
+                  <View style={{ alignItems: 'flex-end', gap: 3, minWidth: 70 }}>
+                    {hasGoal && (
+                      <Text style={{ color: getGoalBarColor(), fontSize: isSmallScreen ? 13 : 14, fontWeight: '700' }} numberOfLines={1}>{data?.goalProgress?.percent}%</Text>
+                    )}
+                    <TouchableOpacity
+                      onPress={handleOpenGoalModal}
+                      style={{
+                        paddingHorizontal: isSmallScreen ? 8 : 10,
+                        paddingVertical: 4,
+                        borderRadius: 6,
+                        backgroundColor: '#10b981',
+                      }}
+                    >
+                      <Text style={{ color: '#fff', fontSize: isSmallScreen ? 9 : 10, fontWeight: '700' }}>
+                        {hasGoal ? 'Ajustar' : 'Definir'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {hasGoal && (
+                  <>
+                    <View style={{ height: 8, backgroundColor: '#e5e7eb', borderRadius: 4, overflow: 'hidden' }}>
+                      <View
+                        style={{
+                          height: '100%',
+                          width: `${Math.min(100, Math.max(0, data?.goalProgress?.percent || 0))}%`,
+                          backgroundColor: getGoalBarColor(),
+                        }}
+                      />
+                    </View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
+                      <Text style={{ color: '#111827', fontSize: isSmallScreen ? 9 : 10 }}>
+                        Alcançado: {formatMoney(data?.goalProgress?.achieved || 0)}
+                      </Text>
+                      <Text style={{ color: '#059669', fontSize: isSmallScreen ? 9 : 10 }}>
+                        Meta: {formatMoney(data?.goalProgress?.target || 0)}
+                      </Text>
+                    </View>
+
+                    {(data?.goalProgress?.percent || 0) >= 100 ? (
+                      <Text style={{ color: '#059669', fontSize: isSmallScreen ? 9 : 10, marginTop: 4, fontWeight: '700' }}>
+                        🎉 Parabéns! Meta batida!
+                      </Text>
+                    ) : (data?.goalProgress?.percent || 0) >= goalMotivationThreshold && isCurrentMonth ? (
+                      <Text style={{ color: '#059669', fontSize: isSmallScreen ? 9 : 10, marginTop: 4, fontWeight: '700' }}>
+                        💪 {data?.goalProgress?.percent || 0}% da meta!
+                      </Text>
+                    ) : isPastMonth && (data?.goalProgress?.percent || 0) < 100 ? (
+                      <Text style={{ color: '#dc2626', fontSize: isSmallScreen ? 9 : 10, marginTop: 4, fontWeight: '700' }}>
+                        ⚠️ Meta não atingida ({data?.goalProgress?.percent || 0}%)
+                      </Text>
+                    ) : null}
+                  </>
+                )}
+              </View>
+            </View>
+
+            {/* Layout em Duas Colunas: Gráfico + Últimas Transações */}
+            <View style={{ flexDirection: isTabletOrDesktop ? 'row' : 'column', gap: 16 }}>
+              {/* COLUNA 1 - Gráfico */}
+              <View style={{ flex: isTabletOrDesktop ? 0.6 : 1, zIndex: 10 }}>
+                {(data?.dailySeries || data?.monthlySeries || weeklyDataQuery.data?.weeklySeries) && (
+                  <View style={[styles.card, { backgroundColor: theme.card, zIndex: 10 }]}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <Text style={{ color: theme.text, fontWeight: '700', fontSize: 15 }}>
+                        {chartView === 'daily' ? 'Fluxo Diário' : chartView === 'weekly' ? 'Fluxo Semanal' : 'Fluxo Mensal'}
+                      </Text>
+                    </View>
+
+                    {/* Botões de Filtro */}
+                    <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
+                      {(['daily', 'weekly', 'monthly'] as const).map((view) => (
+                        <TouchableOpacity
+                          key={view}
+                          onPress={() => setChartView(view)}
+                          style={{
+                            paddingHorizontal: 10,
+                            paddingVertical: 6,
+                            borderRadius: 6,
+                            backgroundColor: chartView === view ? '#16A34A' : theme.card,
+                            borderWidth: 1,
+                            borderColor: '#16A34A',
+                          }}
+                        >
+                          <Text style={{ 
+                            color: chartView === view ? '#fff' : '#16A34A', 
+                            fontSize: 11, 
+                            fontWeight: '700' 
+                          }}>
+                            {view === 'daily' ? 'Diário' : view === 'weekly' ? 'Semanal' : 'Mensal'}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+
+                    {chartView === 'weekly' && (
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                        {Array.from({ length: maxMonthForMonthlyChart }, (_, i) => i + 1).map((m) => {
+                          const isActive = m - 1 === weeklyChartMonth.getMonth();
+                          return (
+                            <TouchableOpacity
+                              key={m}
+                              onPress={() => {
+                                const newDate = new Date(weeklyChartMonth);
+                                newDate.setMonth(m - 1);
+                                setWeeklyChartMonth(newDate);
+                              }}
+                              style={{
+                                paddingHorizontal: 10,
+                                paddingVertical: 4,
+                                borderRadius: 999,
+                                borderWidth: 1,
+                                borderColor: isActive ? '#16A34A' : '#9ca3af',
+                                backgroundColor: isActive ? '#dcfce7' : theme.card,
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  color: isActive ? '#166534' : theme.text,
+                                  fontSize: 10,
+                                  fontWeight: '700',
+                                }}
+                              >
+                                {monthShortNames[m - 1]}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    )}
+
+                    {/* Legenda */}
+                    <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 16, marginBottom: 10 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Text style={{ color: '#16A34A', fontSize: 12 }}>●</Text>
+                        <Text style={{ color: theme.text, fontSize: 11 }}>Entradas</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Text style={{ color: '#D90429', fontSize: 12 }}>●</Text>
+                        <Text style={{ color: theme.text, fontSize: 11 }}>Saídas</Text>
+                      </View>
+                    </View>
+
+                    {/* Gráfico horizontal similar ao da aba Relatórios */}
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      {(() => {
+                      if (chartView === 'daily') {
+                        const dailyData = data?.dailySeries?.filter(day => day.day <= maxDayForDailyChart) || [];
+                        const dataInc = dailyData.map(d => d.income_cents / 100);
+                        const dataExp = dailyData.map(d => d.expense_cents / 100);
+                        const w = Math.max(640, dailyData.length * 40);
+                        const h = 180;
+                        const pad = 28;
+                        const iw = w - pad * 2;
+                        const ih = h - pad * 2;
+                        const n = Math.max(1, dailyData.length);
+                        const group = iw / n;
+                        const barW = Math.max(2, group * 0.35);
+                        const maxY = Math.max(1, ...dataInc, ...dataExp);
+                        const sx = (i: number) => pad + i * group;
+                        const sy = (v: number) => pad + ih - (v / maxY) * ih;
+
+                        return (
+                          <View style={{ borderWidth: 1, borderColor: '#333', borderRadius: 8, padding: 6 }}>
+                            <Svg width={w} height={h}>
+                              <SvgLine x1={pad} y1={pad} x2={pad} y2={pad + ih} stroke={theme.text} strokeWidth={1} />
+                              <SvgLine x1={pad} y1={pad + ih} x2={pad + iw} y2={pad + ih} stroke={theme.text} strokeWidth={1} />
+                              {dataInc.map((v, i) => (
+                                <Rect 
+                                  key={`inc-${i}`} 
+                                  x={sx(i) - barW} 
+                                  y={sy(v)} 
+                                  width={barW} 
+                                  height={Math.max(1, pad + ih - sy(v))} 
+                                  fill="#16A34A"
+                                  onPress={() => {
+                                    setSelectedChartData({
+                                      type: 'daily',
+                                      index: i,
+                                      label: `Dia ${dailyData[i].day}`,
+                                      income: dailyData[i].income_cents,
+                                      expense: dailyData[i].expense_cents
+                                    });
+                                  }}
+                                />
+                              ))}
+                              {dataExp.map((v, i) => (
+                                <Rect 
+                                  key={`exp-${i}`} 
+                                  x={sx(i) + 2} 
+                                  y={sy(v)} 
+                                  width={barW} 
+                                  height={Math.max(1, pad + ih - sy(v))} 
+                                  fill="#D90429"
+                                  onPress={() => {
+                                    setSelectedChartData({
+                                      type: 'daily',
+                                      index: i,
+                                      label: `Dia ${dailyData[i].day}`,
+                                      income: dailyData[i].income_cents,
+                                      expense: dailyData[i].expense_cents
+                                    });
+                                  }}
+                                />
+                              ))}
+                              {dailyData.map((_, i) => (
+                                <SvgText key={`label-${i}`} x={sx(i)} y={pad + ih + 15} fill={theme.text} fontSize="10" textAnchor="middle">
+                                  {i + 1}
+                                </SvgText>
+                              ))}
+                            </Svg>
+                            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 20, marginTop: 8 }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                <Text style={{ color: '#16A34A', fontSize: 14 }}>●</Text>
+                                <Text style={{ color: theme.text, fontSize: 12 }}>Entradas</Text>
+                              </View>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                <Text style={{ color: '#D90429', fontSize: 14 }}>●</Text>
+                                <Text style={{ color: theme.text, fontSize: 12 }}>Saídas</Text>
+                              </View>
+                            </View>
+                            
+                            {/* Tooltip com valores */}
+                            {selectedChartData?.type === 'daily' && (
+                              <View style={{
+                                backgroundColor: theme.card,
+                                borderWidth: 1,
+                                borderColor: '#374151',
+                                borderRadius: 8,
+                                padding: 12,
+                                marginTop: 12,
+                                alignItems: 'center',
+                                position: 'relative'
+                              }}>
+                                <TouchableOpacity 
+                                  style={{ position: 'absolute', top: 4, right: 4, zIndex: 1 }}
+                                  onPress={() => setSelectedChartData(null)}
+                                >
+                                  <Text style={{ color: '#888', fontSize: 16, fontWeight: 'bold' }}>×</Text>
+                                </TouchableOpacity>
+                                <Text style={{ color: theme.text, fontWeight: '700', fontSize: 12, marginBottom: 4 }}>
+                                  {selectedChartData.label}
+                                </Text>
+                                <View style={{ flexDirection: 'row', gap: 16 }}>
+                                  <View style={{ alignItems: 'center' }}>
+                                    <Text style={{ color: '#16A34A', fontSize: 10 }}>Entradas</Text>
+                                    <Text style={{ color: '#16A34A', fontWeight: '700', fontSize: 12 }}>
+                                      {formatMoney(selectedChartData.income)}
+                                    </Text>
+                                  </View>
+                                  <View style={{ alignItems: 'center' }}>
+                                    <Text style={{ color: '#D90429', fontSize: 10 }}>Saídas</Text>
+                                    <Text style={{ color: '#D90429', fontWeight: '700', fontSize: 12 }}>
+                                      {formatMoney(selectedChartData.expense)}
+                                    </Text>
+                                  </View>
+                                  <View style={{ alignItems: 'center' }}>
+                                    <Text style={{ color: theme.text, fontSize: 10 }}>Saldo</Text>
+                                    <Text style={{ 
+                                      color: selectedChartData.income - selectedChartData.expense >= 0 ? '#16A34A' : '#D90429', 
+                                      fontWeight: '700', 
+                                      fontSize: 12 
+                                    }}>
+                                      {formatMoney(selectedChartData.income - selectedChartData.expense)}
+                                    </Text>
+                                  </View>
+                                </View>
+                              </View>
+                            )}
+                          </View>
+                        );
+                      }
+
+                      if (chartView === 'weekly') {
+                        const weeklyData = weeklyDataQuery.data?.weeklySeries || [];
+                        const dataInc = weeklyData.map(w => w.income_cents / 100);
+                        const dataExp = weeklyData.map(w => w.expense_cents / 100);
+                        const w = Math.max(640, weeklyData.length * 60);
+                        const h = 180;
+                        const pad = 28;
+                        const iw = w - pad * 2;
+                        const ih = h - pad * 2;
+                        const n = Math.max(1, weeklyData.length);
+                        const group = iw / n;
+                        const barW = Math.max(2, group * 0.35);
+                        const maxY = Math.max(1, ...dataInc, ...dataExp);
+                        const sx = (i: number) => pad + i * group;
+                        const sy = (v: number) => pad + ih - (v / maxY) * ih;
+
+                        return (
+                          <View style={{ borderWidth: 1, borderColor: '#333', borderRadius: 8, padding: 6 }}>
+                            <Svg width={w} height={h}>
+                              <SvgLine x1={pad} y1={pad} x2={pad} y2={pad + ih} stroke={theme.text} strokeWidth={1} />
+                              <SvgLine x1={pad} y1={pad + ih} x2={pad + iw} y2={pad + ih} stroke={theme.text} strokeWidth={1} />
+                              {dataInc.map((v, i) => (
+                                <Rect key={`inc-${i}`} x={sx(i) - barW} y={sy(v)} width={barW} height={Math.max(1, pad + ih - sy(v))} fill="#16A34A" />
+                              ))}
+                              {dataExp.map((v, i) => (
+                                <Rect key={`exp-${i}`} x={sx(i) + 2} y={sy(v)} width={barW} height={Math.max(1, pad + ih - sy(v))} fill="#D90429" />
+                              ))}
+                              {weeklyData.map((week, i) => (
+                                <SvgText key={`label-${i}`} x={sx(i)} y={pad + ih + 15} fill={theme.text} fontSize="10" textAnchor="middle">
+                                  Sem {week.week}
+                                </SvgText>
+                              ))}
+                            </Svg>
+                            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 20, marginTop: 8 }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                <Text style={{ color: '#16A34A', fontSize: 14 }}>●</Text>
+                                <Text style={{ color: theme.text, fontSize: 12 }}>Entradas</Text>
+                              </View>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                <Text style={{ color: '#D90429', fontSize: 14 }}>●</Text>
+                                <Text style={{ color: theme.text, fontSize: 12 }}>Saídas</Text>
+                              </View>
+                            </View>
+                          </View>
+                        );
+                      }
+
+                      if (chartView === 'monthly') {
+                        const monthlyData = data?.monthlySeries?.filter(month => month.month <= maxMonthForMonthlyChart) || [];
+                        const dataInc = monthlyData.map(m => m.income_cents / 100);
+                        const dataExp = monthlyData.map(m => m.expense_cents / 100);
+                        const w = Math.max(640, monthlyData.length * 50);
+                        const h = 180;
+                        const pad = 28;
+                        const iw = w - pad * 2;
+                        const ih = h - pad * 2;
+                        const n = Math.max(1, monthlyData.length);
+                        const group = iw / n;
+                        const barW = Math.max(2, group * 0.35);
+                        const maxY = Math.max(1, ...dataInc, ...dataExp);
+                        const sx = (i: number) => pad + i * group;
+                        const sy = (v: number) => pad + ih - (v / maxY) * ih;
+
+                        return (
+                          <View style={{ borderWidth: 1, borderColor: '#333', borderRadius: 8, padding: 6 }}>
+                            <Svg width={w} height={h}>
+                              <SvgLine x1={pad} y1={pad} x2={pad} y2={pad + ih} stroke={theme.text} strokeWidth={1} />
+                              <SvgLine x1={pad} y1={pad + ih} x2={pad + iw} y2={pad + ih} stroke={theme.text} strokeWidth={1} />
+                              {dataInc.map((v, i) => (
+                                <Rect key={`inc-${i}`} x={sx(i) - barW} y={sy(v)} width={barW} height={Math.max(1, pad + ih - sy(v))} fill="#16A34A" />
+                              ))}
+                              {dataExp.map((v, i) => (
+                                <Rect key={`exp-${i}`} x={sx(i) + 2} y={sy(v)} width={barW} height={Math.max(1, pad + ih - sy(v))} fill="#D90429" />
+                              ))}
+                              {monthlyData.map((month, i) => (
+                                <SvgText key={`label-${i}`} x={sx(i)} y={pad + ih + 15} fill={theme.text} fontSize="10" textAnchor="middle">
+                                  {month.monthName}
+                                </SvgText>
+                              ))}
+                              {/* Valores no topo das barras */}
+                              {monthlyData.map((month, i) => {
+                                const x = sx(i);
+                                return (
+                                  <React.Fragment key={`values-${i}`}>
+                                    {dataInc[i] > 0 && (
+                                      <SvgText x={x} y={sy(dataInc[i]) - 5} fill="#16A34A" fontSize="9" textAnchor="middle" fontWeight="bold">
+                                        {formatMoney(month.income_cents)}
+                                      </SvgText>
+                                    )}
+                                    {dataExp[i] > 0 && (
+                                      <SvgText x={x} y={sy(dataExp[i]) - 5} fill="#D90429" fontSize="9" textAnchor="middle" fontWeight="bold">
+                                        {formatMoney(month.expense_cents)}
+                                      </SvgText>
+                                    )}
+                                  </React.Fragment>
+                                );
+                              })}
+                            </Svg>
+                            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 20, marginTop: 8 }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                <Text style={{ color: '#16A34A', fontSize: 14 }}>●</Text>
+                                <Text style={{ color: theme.text, fontSize: 12 }}>Entradas</Text>
+                              </View>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                <Text style={{ color: '#D90429', fontSize: 14 }}>●</Text>
+                                <Text style={{ color: theme.text, fontSize: 12 }}>Saídas</Text>
+                              </View>
+                            </View>
+                          </View>
+                        );
+                      }
+
+                      return null;
+                      })()}
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
+
+              {/* COLUNA 2 - Últimas Transações */}
+              <View style={{ flex: isTabletOrDesktop ? 0.4 : 1 }}>
+                <View style={[styles.card, { backgroundColor: theme.card }]}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <Text style={{ color: theme.text, fontWeight: '700', fontSize: 15 }}>Últimas Transações</Text>
+                    <TouchableOpacity onPress={() => navigation.navigate('Lançamentos')}>
+                      <Text style={{ color: '#0ea5e9', fontSize: 11, fontWeight: '700' }}>Ver todas</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {recentTransactionsQuery.isLoading ? (
+                    <Text style={{ color: '#888', fontSize: 11, textAlign: 'center', paddingVertical: 12 }}>
+                      Carregando...
+                    </Text>
+                  ) : recentTransactionsQuery.data && recentTransactionsQuery.data.length > 0 ? (
+                    <View style={{ gap: 0 }}>
+                      {recentTransactionsQuery.data?.map((transaction, idx) => (
+                        <View
+                          key={transaction.id}
+                          style={{
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            paddingVertical: 6,
+                            borderBottomWidth: idx < recentTransactionsQuery.data.length - 1 ? 1 : 0,
+                            borderBottomColor: '#374151',
+                          }}
+                        >
+                          <View style={{ flex: 1, marginRight: 8 }}>
+                            <Text style={{ fontWeight: '700', fontSize: 12, color: theme.text }} numberOfLines={1}>
+                              {transaction.description || 'Sem descrição'}
+                            </Text>
+                            <Text style={{ fontSize: 10, color: '#888' }} numberOfLines={1}>
+                              {new Date(transaction.datetime || transaction.date).toLocaleString('pt-BR', {
+                                day: '2-digit',
+                                month: '2-digit',
+                                year: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })} • {transaction.category || '—'}
+                            </Text>
+                          </View>
+                          <Text
+                            style={{
+                              fontSize: 13,
+                              fontWeight: '700',
+                              color: transaction.type === 'income' ? '#16A34A' : '#ef4444',
+                            }}
+                          >
+                            {transaction.type === 'income' ? '+' : '-'} {formatMoney(transaction.amount_cents)}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : (
+                    <Text style={{ color: '#888', fontSize: 11, textAlign: 'center', paddingVertical: 12 }}>
+                      Nenhuma transação este mês
+                    </Text>
+                  )}
+                </View>
+
+                {/* Botão Adicionar Transação */}
+                <TouchableOpacity
+                  onPress={handleAddTransaction}
+                  style={{
+                    backgroundColor: '#16A34A',
+                    paddingVertical: 10,
+                    paddingHorizontal: 16,
+                    borderRadius: 999,
+                    alignItems: 'center',
+                    alignSelf: isTabletOrDesktop ? 'flex-end' : 'stretch',
+                    marginTop: 8,
+                    minWidth: isTabletOrDesktop ? 180 : undefined,
+                  }}
+                >
+                  <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>+ Adicionar Transação</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </>
+        )}
+      </ScrollView>
+
+      {data?.hasOverdueDebts && !hasSeenOverdueModal && (
+        <View
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.45)',
+            justifyContent: 'center',
+            alignItems: 'center',
+            padding: 24,
+          }}
+        >
+          <View
+            style={{
+              width: '100%',
+              maxWidth: 420,
+              backgroundColor: theme.card,
+              borderRadius: 16,
+              padding: 20,
+              borderWidth: 1,
+              borderColor: '#f97316',
+              gap: 12,
+            }}
+          >
+            <Text style={{ color: '#b45309', fontWeight: '800', fontSize: 16 }}>
+              ⚠️ Existem parcelas em atraso
+            </Text>
+            <Text style={{ color: theme.text, fontSize: 13, textAlign: 'center' }}>
+              Confirme os pagamentos das parcelas em atraso na aba Débitos para atualizar seus valores de dívidas e evitar esquecimentos.
+            </Text>
+            <TouchableOpacity
+              onPress={() => {
+                setHasSeenOverdueModal(true);
+                if (navigation?.navigate) navigation.navigate('Débitos');
+              }}
+              style={{
+                marginTop: 4,
+                alignSelf: 'center',
+                paddingHorizontal: 18,
+                paddingVertical: 10,
+                borderRadius: 999,
+                backgroundColor: '#f97316',
+              }}
+            >
+              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Ir para a aba Débitos</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Modal de Meta Mensal */}
+      {isGoalModalOpen && (
+        <View
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            justifyContent: 'center',
+            alignItems: 'center',
+            padding: 16,
+          }}
+        >
+          <View
+            style={{
+              width: '100%',
+              maxWidth: 420,
+              backgroundColor: theme.card,
+              borderRadius: 16,
+              padding: 20,
+              borderWidth: 1,
+              borderColor: '#16A34A',
+              gap: 12,
+            }}
+          >
+            <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>Meta mensal de faturamento</Text>
+            <Text style={{ color: '#888', fontSize: 12 }}>
+              Defina o valor de faturamento que deseja atingir em {monthLabel}. O progresso será calculado
+              automaticamente com base nas entradas do mês.
+            </Text>
+
+            <View style={{ gap: 4 }}>
+              <Text style={{ color: theme.text, fontSize: 12 }}>Meta do mês (R$)</Text>
+              <TextInput
+                value={goalInputValue}
+                onChangeText={setGoalInputValue}
+                placeholder="Ex: 10000,00"
+                placeholderTextColor="#999"
+                keyboardType="numeric"
+                style={{
+                  borderWidth: 1,
+                  borderColor: '#9ca3af',
+                  borderRadius: 8,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  color: theme.text,
+                  backgroundColor: theme.background,
+                }}
+              />
+            </View>
+
+            <View style={{ gap: 4 }}>
+              <Text style={{ color: theme.text, fontSize: 12 }}>Descrição (opcional)</Text>
+              <TextInput
+                value={goalDescription}
+                onChangeText={setGoalDescription}
+                placeholder="Ex: Meta de faturamento de novembro"
+                placeholderTextColor="#999"
+                style={{
+                  borderWidth: 1,
+                  borderColor: '#9ca3af',
+                  borderRadius: 8,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  color: theme.text,
+                  backgroundColor: theme.background,
+                }}
+              />
+            </View>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+              <TouchableOpacity
+                disabled={savingGoal}
+                onPress={() => {
+                  if (!savingGoal) {
+                    setIsGoalModalOpen(false);
+                  }
+                }}
+                style={{
+                  paddingHorizontal: 14,
+                  paddingVertical: 10,
+                  borderRadius: 999,
+                  backgroundColor: '#6b7280',
+                }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                disabled={savingGoal}
+                onPress={handleSaveGoal}
+                style={{
+                  paddingHorizontal: 14,
+                  paddingVertical: 10,
+                  borderRadius: 999,
+                  backgroundColor: '#16A34A',
+                }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '700' }}>
+                  {savingGoal ? 'Salvando...' : 'Salvar meta'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Histórico de Metas */}
+      {isHistoryOpen && (
+        <View
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            justifyContent: 'center',
+            alignItems: 'center',
+            padding: 16,
+          }}
+        >
+          <View
+            style={{
+              width: '100%',
+              maxWidth: 520,
+              maxHeight: '80%',
+              backgroundColor: theme.card,
+              borderRadius: 16,
+              padding: 16,
+              borderWidth: 1,
+              borderColor: '#0ea5e9',
+            }}
+          >
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800' }}>Histórico de metas mensais</Text>
+              <TouchableOpacity onPress={() => setIsHistoryOpen(false)}>
+                <Text style={{ color: '#ef4444', fontWeight: '700' }}>Fechar</Text>
+              </TouchableOpacity>
+            </View>
+
+            {goalsHistoryQuery.isLoading && (
+              <View style={{ paddingVertical: 16 }}>
+                <Text style={{ color: '#888', fontSize: 12 }}>Carregando histórico…</Text>
+              </View>
+            )}
+
+            {goalsHistoryQuery.isError && (
+              <View style={{ paddingVertical: 16 }}>
+                <Text style={{ color: '#ef4444', fontSize: 12 }}>
+                  Não foi possível carregar o histórico. Tente novamente mais tarde.
+                </Text>
+              </View>
+            )}
+
+            {goalsHistoryQuery.data?.length === 0 && !goalsHistoryQuery.isLoading && (
+              <View style={{ paddingVertical: 16 }}>
+                <Text style={{ color: '#888', fontSize: 12 }}>Nenhuma meta registrada até o momento.</Text>
+              </View>
+            )}
+
+            {goalsHistoryQuery.data && goalsHistoryQuery.data.length > 0 && (
+              <ScrollView style={{ marginTop: 8 }}>
+                <View style={{ flexDirection: 'row', paddingVertical: 6, borderBottomWidth: 1, borderColor: '#374151' }}>
+                  <Text style={{ flex: 2, color: theme.text, fontSize: 12, fontWeight: '700' }}>Mês</Text>
+                  <Text style={{ flex: 2, color: theme.text, fontSize: 12, fontWeight: '700', textAlign: 'right' }}>Meta</Text>
+                  <Text style={{ flex: 2, color: theme.text, fontSize: 12, fontWeight: '700', textAlign: 'right' }}>Atingido</Text>
+                  <Text style={{ flex: 1, color: theme.text, fontSize: 12, fontWeight: '700', textAlign: 'right' }}>%</Text>
+                </View>
+
+                {goalsHistoryQuery.data?.map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      Alert.alert(
+                        item.label,
+                        `Meta: ${formatMoney(item.target_cents)}\nAtingido: ${formatMoney(item.achieved_cents)}\nPercentual realizado: ${item.percent}%`,
+                      );
+                    }}
+                  >
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        paddingVertical: 8,
+                        borderBottomWidth: 1,
+                        borderColor: '#1f2937',
+                      }}
+                    >
+                      <Text style={{ flex: 2, color: theme.text, fontSize: 12 }}>{item.label}</Text>
+                      <Text style={{ flex: 2, color: theme.text, fontSize: 12, textAlign: 'right' }}>
+                        {formatMoney(item.target_cents)}
+                      </Text>
+                      <Text style={{ flex: 2, color: theme.text, fontSize: 12, textAlign: 'right' }}>
+                        {formatMoney(item.achieved_cents)}
+                      </Text>
+                      <Text style={{ flex: 1, color: theme.text, fontSize: 12, textAlign: 'right' }}>
+                        {item.percent}%
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  title: {
+    fontSize: 24,
+    fontWeight: '800',
+  },
+  card: {
+    padding: 10,
+    borderRadius: 10,
+    gap: 6,
+    backgroundColor: '#ffffff',
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+    marginBottom: 2,
+  },
+  summaryCard: {
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: '#ffffff',
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+    marginBottom: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 100,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 12,
+  },
+  alertCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+});

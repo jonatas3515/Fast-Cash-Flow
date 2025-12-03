@@ -1,0 +1,1312 @@
+import React from 'react';
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, useWindowDimensions, Platform, Alert, TextInput, FlatList } from 'react-native';
+import { Svg, Rect, Text as SvgText, Line as SvgLine } from 'react-native-svg';
+import { InteractiveBar, InteractiveChart } from '../components/InteractiveBar';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigation } from '@react-navigation/native';
+import { useThemeCtx } from '../theme/ThemeProvider';
+import { useI18n } from '../i18n/I18nProvider';
+import { useToast } from '../ui/ToastProvider';
+import { useSettings } from '../settings/SettingsProvider';
+import { supabase } from '../lib/supabase';
+import { getMonthlyTotals, getMonthlyDailySeries, getMonthlyWeeklySeries, getYearlyMonthlySeries, getTransactionsByMonth, Transaction } from '../repositories/transactions';
+import { getGoalByMonth, createGoal, updateGoal as updateGoalRepo, getGoalsByCompany } from '../repositories/financial_goals';
+import { getSettingsByCompany, DashboardSettings, getOrCreateSettings } from '../repositories/dashboard_settings';
+import { listAllDebts } from '../repositories/debts';
+import { listRecurringExpenses, getNextOccurrence, RecurringExpense } from '../repositories/recurring_expenses';
+import { getCurrentCompanyId } from '../lib/company';
+import { monthNamePt } from '../utils/date';
+import { formatCentsBRL } from '../utils/money';
+import { capitalizeCompanyName } from '../utils/string';
+import ScreenTitle from '../components/ScreenTitle';
+import { quickSync } from '../lib/sync';
+
+// Função para formatar data sem problemas de fuso horário
+const formatDateLocal = (dateString: string) => {
+  // dateString está no formato YYYY-MM-DD
+  const [year, month, day] = dateString.split('-').map(Number);
+  // Criar data usando timezone local para evitar problemas com UTC
+  const date = new Date(year, month - 1, day);
+  return date.toLocaleDateString('pt-BR');
+};
+
+export default function DashboardScreen({ navigation }: any) {
+  const { theme } = useThemeCtx();
+  const { formatMoney } = useI18n();
+  const toast = useToast();
+  const { width } = useWindowDimensions();
+  const isWeb = Platform.OS === 'web';
+  const isTabletOrDesktop = isWeb && width >= 768;
+  const qc = useQueryClient();
+
+  const [selectedMonth, setSelectedMonth] = React.useState(new Date()); // Já inicia com o mês atual
+  const [weeklyChartMonth, setWeeklyChartMonth] = React.useState(new Date());
+  const [chartView, setChartView] = React.useState<'daily' | 'weekly' | 'monthly'>('daily');
+  const [selectedChartData, setSelectedChartData] = React.useState<{
+    type: 'daily' | 'weekly' | 'monthly';
+    index: number;
+    label: string;
+    income: number;
+    expense: number;
+  } | null>(null);
+
+  // Meta financeira
+  const [goalModalOpen, setGoalModalOpen] = React.useState(false);
+  const [goalInputValue, setGoalInputValue] = React.useState('');
+  const [savingGoal, setSavingGoal] = React.useState(false);
+
+  const getGoalBarColor = () => {
+    if (!hasGoal) return '#6b7280';
+    if (goalProgress >= 100) return '#10b981';
+    if (goalProgress >= 75) return '#3b82f6';
+    if (goalProgress >= 50) return '#f59e0b';
+    return '#ef4444';
+  };
+
+  const getGoalStatusText = () => {
+    if (!hasGoal) return '';
+    if (goalProgress === 0) return 'Meta definida, ainda sem progresso.';
+    if (goalProgress >= 1 && goalProgress <= 49) return `Você atingiu ${goalProgress}% da meta. Mantenha o foco!`;
+    if (goalProgress >= 50 && goalProgress <= 99) return `Ótimo! Você já alcançou ${goalProgress}% da meta deste mês.`;
+    if (goalProgress >= 100) return 'Parabéns! Meta deste mês atingida ✅.';
+    return '';
+  };
+
+  const handleOpenGoalModal = () => {
+    if (data?.goalProgress?.target_cents) {
+      setGoalInputValue((data.goalProgress.target_cents / 100).toFixed(2));
+    } else {
+      setGoalInputValue('');
+    }
+    setGoalModalOpen(true);
+  };
+
+  const handleChartBarPress = (type: 'daily' | 'weekly' | 'monthly', index: number, label: string, income: number, expense: number) => {
+    setSelectedChartData({
+      type,
+      index,
+      label,
+      income,
+      expense
+    });
+  };
+
+  const handleMobileChartPress = (type: 'daily' | 'weekly' | 'monthly') => {
+    // No mobile, mostrar dados do dia/semana/mês mais recente
+    if (type === 'daily' && data?.dailySeries?.length) {
+      const dailyData = data.dailySeries;
+      const dataInc = dailyData.map(d => d.income_cents / 100);
+      const dataExp = dailyData.map(d => d.expense_cents / 100);
+      const lastIndex = dailyData.length - 1;
+      handleChartBarPress('daily', lastIndex, `Dia ${dailyData[lastIndex].day}`, dailyData[lastIndex].income_cents, dailyData[lastIndex].expense_cents);
+    } else if (type === 'weekly' && weeklyDataQuery.data?.weeklySeries?.length) {
+      const weeklyData = weeklyDataQuery.data.weeklySeries;
+      const dataInc = weeklyData.map(w => w.income_cents / 100);
+      const dataExp = weeklyData.map(w => w.expense_cents / 100);
+      const lastIndex = weeklyData.length - 1;
+      handleChartBarPress('weekly', lastIndex, `Semana ${weeklyData[lastIndex].week}`, weeklyData[lastIndex].income_cents, weeklyData[lastIndex].expense_cents);
+    } else if (type === 'monthly' && data?.monthlySeries?.length) {
+      const monthlyData = data.monthlySeries.filter(m => m.month <= maxMonthForMonthlyChart);
+      const dataInc = monthlyData.map(m => m.income_cents / 100);
+      const dataExp = monthlyData.map(m => m.expense_cents / 100);
+      const lastIndex = monthlyData.length - 1;
+      handleChartBarPress('monthly', lastIndex, monthNamePt(monthlyData[lastIndex].month - 1), monthlyData[lastIndex].income_cents, monthlyData[lastIndex].expense_cents);
+    }
+  };
+
+  const handleSaveGoal = async () => {
+    try {
+      const companyId = await getCurrentCompanyId();
+      if (!companyId) {
+        toast.show('Empresa não identificada. Faça login novamente.', 'error');
+        return;
+      }
+
+      const year = selectedMonth.getFullYear();
+      const month = selectedMonth.getMonth() + 1;
+      const monthStr = `${year}-${String(month).padStart(2, '0')}-01`;
+
+      const amount_cents = Math.round(parseFloat(goalInputValue.replace(',', '.')) * 100);
+      if (amount_cents <= 0) {
+        toast.show('Informe um valor de meta válido (maior que zero).', 'error');
+        return;
+      }
+
+      setSavingGoal(true);
+      
+      const existingGoal = await getGoalByMonth(companyId, monthStr);
+      if (existingGoal) {
+        await updateGoalRepo(existingGoal.id, { target_amount_cents: amount_cents });
+      } else {
+        await createGoal({ company_id: companyId, month: monthStr, target_amount_cents: amount_cents });
+      }
+
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+      setGoalModalOpen(false);
+      toast.show('Meta financeira atualizada com sucesso!', 'success');
+    } catch (error) {
+      console.error('[Dashboard] Erro ao salvar meta:', error);
+      toast.show('Erro ao salvar meta financeira.', 'error');
+    } finally {
+      setSavingGoal(false);
+    }
+  };
+
+  const dashboardQuery = useQuery({
+    queryKey: ['dashboard', selectedMonth.toISOString().slice(0, 7)],
+    queryFn: async () => {
+      try {
+        const companyId = await getCurrentCompanyId();
+        if (!companyId) return null;
+        
+        // Usar fuso horário local para evitar problemas com UTC
+        const now = new Date();
+        const year = selectedMonth.getFullYear();
+        const month = selectedMonth.getMonth() + 1;
+        
+        // Debug: Log do mês sendo buscado
+        console.log(`[Dashboard] ========== INÍCIO BUSCA ==========`);
+        console.log(`[Dashboard] Data atual: ${now.toLocaleDateString('pt-BR')} ${now.toLocaleTimeString('pt-BR')}`);
+        console.log(`[Dashboard] Mês atual (0-indexed): ${now.getMonth()} = ${now.getMonth() + 1} (1-indexed)`);
+        console.log(`[Dashboard] Mês selecionado: ${selectedMonth.toLocaleDateString('pt-BR')}`);
+        console.log(`[Dashboard] Mês selecionado (0-indexed): ${selectedMonth.getMonth()} = ${month} (1-indexed)`);
+        console.log(`[Dashboard] Buscando dados para: ${year}-${String(month).padStart(2, '0')}`);
+        
+        // Obter totais do mês
+        const { income_cents, expense_cents, balance_cents } = await getMonthlyTotals(year, month);
+
+        // Obter série diária
+        const dailySeries = await getMonthlyDailySeries(year, month);
+
+        // Obter série mensal
+        const monthlySeries = await getYearlyMonthlySeries(year);
+
+        // Obter meta do mês
+        const monthStr = `${year}-${String(month).padStart(2, '0')}-01`;
+        const goal = await getGoalByMonth(companyId, monthStr);
+
+        const goalProgress = {
+          target_cents: goal?.target_amount_cents || 0,
+          achieved_cents: income_cents,
+          percent:
+            goal && goal.target_amount_cents > 0
+              ? Math.min(100, Math.round((income_cents * 100) / goal.target_amount_cents))
+              : 0,
+        };
+
+        // Obter dívidas com cálculo de valores pagos e restantes
+        const debts = await listAllDebts(companyId);
+        let totalDebtsTotal = 0;
+        let totalDebtsPaid = 0;
+        let totalDebtsRemaining = 0;
+        let hasOverdueDebts = false;
+
+        for (const debt of debts) {
+          const total = debt.total_cents || 0;
+          const paidCount = debt.paid_installments || 0;
+          const installmentValue = debt.installment_cents || 0;
+          const paid = paidCount * installmentValue;
+          const remaining = Math.max(0, total - paid);
+          
+          totalDebtsTotal += total;
+          totalDebtsPaid += paid;
+          totalDebtsRemaining += remaining;
+
+          // Verificar se há dívidas em atraso
+          const today = new Date();
+          const endDate = new Date(debt.end_date);
+          const expectedPaid = Math.floor((today.getTime() - new Date(debt.start_date).getTime()) / (30 * 24 * 60 * 60 * 1000)) + 1;
+          
+          if (paidCount < Math.min(expectedPaid, debt.installment_count)) {
+            hasOverdueDebts = true;
+          }
+        }
+
+        // Obter despesas recorrentes
+        const recurringExpenses = await listRecurringExpenses();
+        const totalRecurringIncome_cents = recurringExpenses
+          .filter(r => r.amount_cents && r.amount_cents > 0) // Considerar todas como despesas por enquanto
+          .reduce((sum, r) => sum + (r.amount_cents || 0), 0);
+        const totalRecurringExpenses_cents = totalRecurringIncome_cents; // Simplificado por enquanto
+
+        return {
+          income: income_cents,
+          expenses: expense_cents,
+          balance: balance_cents,
+          dailySeries,
+          monthlySeries,
+          goalProgress,
+          totalDebts: totalDebtsRemaining,
+          totalDebtsTotal,
+          totalDebtsPaid,
+          hasOverdueDebts,
+          recurringExpenses,
+          totalRecurringIncome_cents,
+          totalRecurringExpenses_cents,
+        };
+      } catch (error) {
+        console.error('[Dashboard] Erro ao carregar dados:', error);
+        return null;
+      }
+    },
+  });
+
+  const weeklyDataQuery = useQuery({
+    queryKey: ['dashboard-weekly', weeklyChartMonth.toISOString().slice(0, 7)],
+    queryFn: async () => {
+      try {
+        const companyId = await getCurrentCompanyId();
+        if (!companyId) return null;
+        
+        const year = weeklyChartMonth.getFullYear();
+        const month = weeklyChartMonth.getMonth() + 1;
+        
+        console.log(`[Dashboard] Buscando dados semanais para: ${year}-${String(month).padStart(2, '0')}`);
+        
+        const weeklySeries = await getMonthlyWeeklySeries(year, month);
+        
+        return { weeklySeries };
+      } catch (error) {
+        console.error('[Dashboard] Erro ao carregar dados semanais:', error);
+        return null;
+      }
+    },
+  });
+
+  // Query para buscar configurações do dashboard
+  const settingsQuery = useQuery({
+    queryKey: ['dashboard-settings'],
+    queryFn: async () => {
+      try {
+        const companyId = await getCurrentCompanyId();
+        if (!companyId) return null;
+        return await getOrCreateSettings(companyId);
+      } catch (error) {
+        console.error('[Dashboard] Erro ao carregar configurações:', error);
+        return null;
+      }
+    },
+  });
+
+  // Query para buscar transações recentes
+  const recentTransactionsQuery = useQuery({
+    queryKey: ['recent-transactions'],
+    queryFn: async () => {
+      try {
+        const companyId = await getCurrentCompanyId();
+        if (!companyId) return [];
+        
+        // Buscar transações dos últimos 3 meses para garantir ter as mais recentes
+        const today = new Date();
+        const allTransactions = [];
+        
+        // Buscar transações mês a mês dos últimos 3 meses
+        for (let monthOffset = 0; monthOffset <= 3; monthOffset++) {
+          const targetDate = new Date(today.getFullYear(), today.getMonth() - monthOffset, 1);
+          const transactions = await getTransactionsByMonth(
+            targetDate.getFullYear(),
+            targetDate.getMonth() + 1
+          );
+          allTransactions.push(...transactions);
+        }
+        
+        // Retornar últimas 5 transações ordenadas por data e hora (mais recentes primeiro)
+        return allTransactions
+          .sort((a, b) => {
+            // Ordenar por data e hora (datetime se disponível, senão date)
+            const dateA = new Date(a.datetime || a.date);
+            const dateB = new Date(b.datetime || b.date);
+            return dateB.getTime() - dateA.getTime();
+          })
+          .slice(0, 5);
+      } catch (error) {
+        console.error('[Dashboard] Erro ao carregar transações recentes:', error);
+        return [];
+      }
+    },
+  });
+
+  // Dados do dashboard
+  const data = dashboardQuery.data;
+  const settings = settingsQuery.data;
+  const isSmallScreen = width < 380;
+  const today = new Date();
+  const isCurrentMonth = selectedMonth.getMonth() === today.getMonth() && selectedMonth.getFullYear() === today.getFullYear();
+  const isPastMonth = selectedMonth < new Date(today.getFullYear(), today.getMonth(), 1);
+  const selectedYear = selectedMonth.getFullYear();
+  const selectedMonthIndex = selectedMonth.getMonth();
+  const daysInSelectedMonth = new Date(selectedYear, selectedMonthIndex + 1, 0).getDate();
+  const maxDayForDailyChart = isCurrentMonth ? today.getDate() : daysInSelectedMonth;
+  const maxMonthForMonthlyChart = isCurrentMonth ? today.getMonth() + 1 : 12;
+  const monthLabel = `${monthNamePt(selectedMonth.getMonth())} ${selectedMonth.getFullYear()}`;
+  const isNegativeBalance = (data?.balance || 0) < 0;
+  const hasGoal = !!data?.goalProgress?.target_cents;
+  const goalProgress = data?.goalProgress?.percent || 0;
+  const isLowGoalProgress = hasGoal && goalProgress < 50 && isCurrentMonth;
+  const isHighDebt = (data?.totalDebts || 0) > ((data?.income || 0) * 0.3);
+
+  // Cálculo de alertas
+  const alerts = React.useMemo(() => {
+    const alertList: Array<{
+      type: 'negative_balance' | 'high_debt';
+      message: string;
+      color: string;
+      icon: string;
+    }> = [];
+    
+    if (!settings) return alertList;
+    
+    // Alerta de saldo mensal negativo
+    if (settings.alert_negative_balance && isCurrentMonth && (data?.balance || 0) < 0) {
+      alertList.push({
+        type: 'negative_balance' as const,
+        message: `Saldo mensal negativo em ${formatMoney(Math.abs(data?.balance || 0))}`,
+        color: '#D90429',
+        icon: '⚠️'
+      });
+    }
+    
+    // Alerta de dívida acima do limite
+    if ((data?.totalDebts || 0) > settings.alert_debt_threshold_cents) {
+      alertList.push({
+        type: 'high_debt' as const,
+        message: `Dívidas acima de R$ ${(settings.alert_debt_threshold_cents / 100).toFixed(2)}`,
+        color: '#F59E0B',
+        icon: '💳'
+      });
+    }
+    
+    return alertList;
+  }, [settings, data, isCurrentMonth, formatMoney]);
+
+  const handlePreviousMonth = () => {
+    const newDate = new Date(selectedMonth);
+    newDate.setMonth(newDate.getMonth() - 1);
+    setSelectedMonth(newDate);
+  };
+
+  const handleNextMonth = () => {
+    const newDate = new Date(selectedMonth);
+    newDate.setMonth(newDate.getMonth() + 1);
+    setSelectedMonth(newDate);
+  };
+
+  return (
+    <View style={{ flex: 1, backgroundColor: theme.background }}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: 96, padding: 16, gap: 16 }}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Título Padronizado */}
+        <ScreenTitle 
+          title="Dashboard Financeiro" 
+          subtitle="Acompanhe seu fluxo de caixa em tempo real" 
+        />
+
+        {/* Painel de Alertas */}
+        {alerts.length > 0 && (
+          <View style={{ backgroundColor: '#FEF2F2', borderColor: '#D90429', borderWidth: 1, borderRadius: 8, padding: 12 }}>
+            <Text style={{ color: '#D90429', fontWeight: '700', fontSize: 14, marginBottom: 8 }}>🚨 Alertas Financeiros</Text>
+            {alerts.map((alert, index) => (
+              <TouchableOpacity
+                key={index}
+                onPress={() => {
+                  if (alert.type === 'negative_balance') {
+                    navigation.navigate('Relatórios');
+                  } else if (alert.type === 'high_debt') {
+                    navigation.navigate('Débitos');
+                  }
+                }}
+                style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', padding: 8, borderRadius: 6, marginBottom: index < alerts.length - 1 ? 6 : 0 }}
+              >
+                <Text style={{ fontSize: 16, marginRight: 8 }}>{alert.icon}</Text>
+                <Text style={{ color: alert.color, fontSize: 12, fontWeight: '600', flex: 1 }}>{alert.message}</Text>
+                <Text style={{ color: '#6B7280', fontSize: 10 }}>Ver detalhes →</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        {/* Period Selector */}
+        <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+            <TouchableOpacity
+              onPress={handlePreviousMonth}
+              style={{ paddingHorizontal: 14, paddingVertical: 10, backgroundColor: theme.card, borderRadius: 12, minWidth: 44, alignItems: 'center' }}
+            >
+              <Text style={{ color: theme.text, fontWeight: '700', fontSize: 18 }}>←</Text>
+            </TouchableOpacity>
+            <Text style={{ color: theme.text, fontWeight: '700', fontSize: 16 }}>
+              {monthNamePt(selectedMonth.getMonth())} {selectedMonth.getFullYear()}
+            </Text>
+            <TouchableOpacity
+              onPress={handleNextMonth}
+              style={{ paddingHorizontal: 14, paddingVertical: 10, backgroundColor: theme.card, borderRadius: 12, minWidth: 44, alignItems: 'center' }}
+            >
+              <Text style={{ color: theme.text, fontWeight: '700', fontSize: 18 }}>→</Text>
+            </TouchableOpacity>
+          </View>
+
+        {dashboardQuery.isLoading && (
+          <View style={{ padding: 20, alignItems: 'center' }}>
+            <Text style={{ color: '#888' }}>Carregando dados do dashboard…</Text>
+          </View>
+        )}
+
+        {/* Main Cards - Layout responsivo */}
+        {data && (
+          <>
+            {/* Layout Web: 4 cards em linha | Android: 3 linhas com 2 cards cada */}
+            {isTabletOrDesktop ? (
+              <View style={styles.summaryRow}>
+                {/* Cards Web - mantido original */}
+                <View style={[styles.summaryCard, { width: '23%', backgroundColor: isNegativeBalance ? '#fee2e2' : '#dcfce7', borderColor: isNegativeBalance ? '#ef4444' : '#16a34a', borderWidth: 1 }]}>
+                  <Text style={{ color: '#166534', fontWeight: '700', fontSize: 12, textAlign:'center' }}>💰 Saldo Atual</Text>
+                  <Text style={{ color: isNegativeBalance ? '#991b1b' : '#166534', fontSize: 22, fontWeight: '800', marginTop: 8, textAlign:'center' }}>
+                    {formatMoney(data?.balance || 0)}
+                  </Text>
+                </View>
+
+                <View style={[styles.summaryCard, { width: '23%', backgroundColor: '#dbeafe', borderColor: '#1d4ed8', borderWidth: 1 }]}>
+                  <Text style={{ color: '#1e40af', fontWeight: '700', fontSize: 12, textAlign:'center' }}>📈 Entradas</Text>
+                  <Text style={{ color: '#1e40af', fontSize: 20, fontWeight: '800', marginTop: 8, textAlign:'center' }}>
+                    {formatMoney(data?.income || 0)}
+                  </Text>
+                </View>
+
+                <View style={[styles.summaryCard, { width: '23%', backgroundColor: '#fee2e2', borderColor: '#ef4444', borderWidth: 1 }]}>
+                  <Text style={{ color: '#991b1b', fontWeight: '700', fontSize: 12, textAlign:'center' }}>📉 Saídas</Text>
+                  <Text style={{ color: '#dc2626', fontSize: 20, fontWeight: '800', marginTop: 8, textAlign:'center' }}>
+                    {formatMoney(data?.expenses || 0)}
+                  </Text>
+                </View>
+
+                <View style={[styles.summaryCard, { width: '23%', backgroundColor: '#f3e8ff', borderColor: '#8b5cf6', borderWidth: 1 }]}>
+                  <Text style={{ color: '#6b21a8', fontWeight: '700', fontSize: 12, textAlign:'center' }}>🔮 Saldo Projetado</Text>
+                  <Text style={{ color: '#6b21a8', fontSize: 20, fontWeight: '800', marginTop: 8, textAlign:'center' }}>
+                    {formatMoney((data?.balance || 0) + (data?.totalRecurringIncome_cents || 0) - (data?.totalRecurringExpenses_cents || 0))}
+                  </Text>
+                </View>
+              </View>
+            ) : (
+              /* Layout Android: 3 linhas com 2 cards cada */
+              <View style={{ gap: 8, marginBottom: 12 }}>
+                {/* Linha 1: Entradas - Saídas */}
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <View style={[styles.summaryCard, { flex: 1, backgroundColor: '#dbeafe', borderColor: '#1d4ed8', borderWidth: 1 }]}>
+                    <Text style={{ color: '#1e40af', fontWeight: '700', fontSize: 11, textAlign:'center' }}>📈 Entradas</Text>
+                    <Text style={{ color: '#1e40af', fontSize: 16, fontWeight: '800', marginTop: 8, textAlign:'center' }}>
+                      {formatMoney(data?.income || 0)}
+                    </Text>
+                  </View>
+
+                  <View style={[styles.summaryCard, { flex: 1, backgroundColor: '#fee2e2', borderColor: '#ef4444', borderWidth: 1 }]}>
+                    <Text style={{ color: '#991b1b', fontWeight: '700', fontSize: 11, textAlign:'center' }}>📉 Saídas</Text>
+                    <Text style={{ color: '#dc2626', fontSize: 16, fontWeight: '800', marginTop: 8, textAlign:'center' }}>
+                      {formatMoney(data?.expenses || 0)}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Linha 2: Saldo Atual - Saldo Projetado */}
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <View style={[styles.summaryCard, { flex: 1, backgroundColor: isNegativeBalance ? '#fee2e2' : '#dcfce7', borderColor: isNegativeBalance ? '#ef4444' : '#16a34a', borderWidth: 1 }]}>
+                    <Text style={{ color: '#166534', fontWeight: '700', fontSize: 11, textAlign:'center' }}>💰 Saldo Atual</Text>
+                    <Text style={{ color: isNegativeBalance ? '#991b1b' : '#166534', fontSize: 18, fontWeight: '800', marginTop: 8, textAlign:'center' }}>
+                      {formatMoney(data?.balance || 0)}
+                    </Text>
+                  </View>
+
+                  <View style={[styles.summaryCard, { flex: 1, backgroundColor: '#f3e8ff', borderColor: '#8b5cf6', borderWidth: 1 }]}>
+                    <Text style={{ color: '#6b21a8', fontWeight: '700', fontSize: 11, textAlign:'center' }}>🔮 Saldo Projetado</Text>
+                    <Text style={{ color: '#6b21a8', fontSize: 16, fontWeight: '800', marginTop: 8, textAlign:'center' }}>
+                      {formatMoney((data?.balance || 0) + (data?.totalRecurringIncome_cents || 0) - (data?.totalRecurringExpenses_cents || 0))}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Alertas de Progresso de Meta */}
+                {isCurrentMonth && hasGoal && (
+                  <View style={{ marginBottom: 8 }}>
+                    {isLowGoalProgress && (
+                      <View style={{ backgroundColor: '#fef3c7', borderColor: '#f59e0b', borderWidth: 1, borderRadius: 6, padding: 8 }}>
+                        <Text style={{ color: '#92400e', fontSize: 11, fontWeight: '600', textAlign: 'center' }}>
+                          ⚠️ Alerta: você ainda está abaixo de 50% da meta deste mês. Considere revisar suas entradas.
+                        </Text>
+                      </View>
+                    )}
+                    {goalProgress >= 100 && (
+                      <View style={{ backgroundColor: '#dcfce7', borderColor: '#16a34a', borderWidth: 1, borderRadius: 6, padding: 8 }}>
+                        <Text style={{ color: '#166534', fontSize: 11, fontWeight: '600', textAlign: 'center' }}>
+                          🎉 Meta do mês atingida!
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                )}
+
+                {/* Linha 3: Dívidas - Meta Financeira */}
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <View style={[styles.summaryCard, { flex: 1, backgroundColor: isHighDebt ? '#fef3c7' : '#f9fafb', borderColor: isHighDebt ? '#f59e0b' : '#d1d5db', borderWidth: 1 }]}>
+                    <Text style={{ color: '#111827', fontWeight: '700', fontSize: 11, textAlign:'center' }}>💳 Dívidas</Text>
+                    <Text style={{ color: '#059669', fontSize: 14, fontWeight: '800', marginTop: 4, textAlign:'center' }}>
+                      Restante: {formatMoney(data?.totalDebts || 0)}
+                    </Text>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
+                      <Text style={{ color: '#6b7280', fontSize: 8 }}>Pago: {formatMoney(data?.totalDebtsPaid || 0)}</Text>
+                      <Text style={{ color: '#111827', fontSize: 8 }}>Total: {formatMoney(data?.totalDebtsTotal || 0)}</Text>
+                    </View>
+                    <Text style={{ color: isHighDebt ? '#92400e' : '#6b7280', fontSize: 8, marginTop: 2, textAlign:'center' }}>
+                      {data?.hasOverdueDebts ? '⚠️ Em atraso' : isHighDebt ? '⚠️ Alto' : 'Ok'}
+                    </Text>
+                  </View>
+
+                  <View style={[styles.summaryCard, { flex: 1, backgroundColor: '#fef2f2', borderColor: hasGoal ? (isLowGoalProgress ? '#ef4444' : '#10b981') : '#d1d5db', borderWidth: 1 }]}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <Text style={{ color: '#111827', fontWeight: '700', fontSize: 11 }}>🎯 Meta</Text>
+                      <TouchableOpacity
+                        onPress={handleOpenGoalModal}
+                        style={{
+                          paddingHorizontal: 6,
+                          paddingVertical: 2,
+                          borderRadius: 4,
+                          backgroundColor: hasGoal ? (isLowGoalProgress ? '#ef4444' : '#10b981') : '#6b7280',
+                        }}
+                      >
+                        <Text style={{ color: '#fff', fontSize: 9, fontWeight: '700' }}>
+                          {hasGoal ? 'Editar' : 'Add'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={{ color: '#111827', fontSize: 18, fontWeight: '800', textAlign: 'center' }}>
+                      {formatMoney(data?.goalProgress?.target_cents || 0)}
+                    </Text>
+                    {hasGoal && (
+                      <>
+                        <Text style={{ color: getGoalBarColor(), fontSize: 14, fontWeight: '700', marginTop: 4, textAlign: 'center' }}>
+                          {goalProgress}%
+                        </Text>
+                        <Text style={{ color: getGoalBarColor(), fontSize: 10, fontWeight: '600', marginTop: 1, textAlign:'center', fontStyle: 'italic' }}>
+                          {getGoalStatusText()}
+                        </Text>
+                        <View style={{
+                          height: 6,
+                          backgroundColor: '#e5e7eb',
+                          borderRadius: 3,
+                          marginTop: 8,
+                          overflow: 'hidden'
+                        }}>
+                          <View style={{
+                            height: '100%',
+                            backgroundColor: getGoalBarColor(),
+                            borderRadius: 3,
+                            width: `${Math.min(100, goalProgress)}%`
+                          }} />
+                        </View>
+                      </>
+                    )}
+                  </View>
+                </View>
+              )}
+
+              {/* Layout em Duas Colunas: Gráfico + Últimas Transações */}
+              <View style={{ flexDirection: isTabletOrDesktop ? 'row' : 'column', gap: 16 }}>
+                {/* COLUNA 1 - Gráfico */}
+                <View style={{ flex: isTabletOrDesktop ? 0.6 : 1, overflow: 'hidden', maxWidth: '100%' }}>
+                  {(data?.dailySeries || data?.monthlySeries || weeklyDataQuery.data?.weeklySeries) && (
+                    <View style={[styles.card, { backgroundColor: theme.card, overflow: 'hidden', maxWidth: '100%' }]}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <Text style={{ color: theme.text, fontWeight: '700', fontSize: 15 }}>
+                          {chartView === 'daily' ? 'Fluxo Diário' : chartView === 'weekly' ? 'Fluxo Semanal' : 'Fluxo Mensal'}
+                        </Text>
+            {/* Alertas de Progresso de Meta - Web */}
+            {isTabletOrDesktop && isCurrentMonth && hasGoal && (
+              <View style={{ marginBottom: 8 }}>
+                {isLowGoalProgress && (
+                  <View style={{ backgroundColor: '#fef3c7', borderColor: '#f59e0b', borderWidth: 1, borderRadius: 6, padding: 8 }}>
+                    <Text style={{ color: '#92400e', fontSize: 12, fontWeight: '600', textAlign: 'center' }}>
+                      ⚠️ Alerta: você ainda está abaixo de 50% da meta deste mês. Considere revisar suas entradas.
+                    </Text>
+                  </View>
+                )}
+                {goalProgress >= 100 && (
+                  <View style={{ backgroundColor: '#dcfce7', borderColor: '#16a34a', borderWidth: 1, borderRadius: 6, padding: 8 }}>
+                    <Text style={{ color: '#166534', fontSize: 12, fontWeight: '600', textAlign: 'center' }}>
+                      🎉 Meta do mês atingida!
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* Cards de Dívidas e Meta (apenas Web) */}
+            {isTabletOrDesktop && (
+              <View style={{ flexDirection: 'row', gap: 12, marginBottom: 12 }}>
+                {/* Card Dívidas - Web */}
+                <View style={[styles.card, { flex: 1, backgroundColor: isHighDebt ? '#fef3c7' : '#f9fafb', borderColor: isHighDebt ? '#f59e0b' : '#d1d5db', borderWidth: 1 }]}>
+                  <Text style={{ color: '#111827', fontWeight: '700', fontSize: 14, marginBottom: 8 }}>💳 Dívidas em Aberto</Text>
+                  <Text style={{ color: '#059669', fontSize: 16, fontWeight: '800' }}>
+                    Restante: {formatMoney(data?.totalDebts || 0)}
+                  </Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
+                    <Text style={{ color: '#6b7280', fontSize: 12 }}>Pago: {formatMoney(data?.totalDebtsPaid || 0)}</Text>
+                    <Text style={{ color: '#111827', fontSize: 12 }}>Total: {formatMoney(data?.totalDebtsTotal || 0)}</Text>
+                  </View>
+                  <Text style={{ color: isHighDebt ? '#92400e' : '#6b7280', fontSize: 11, marginTop: 4, textAlign: 'center' }}>
+                    {data?.hasOverdueDebts ? '⚠️ Em atraso' : isHighDebt ? '⚠️ Alto' : '✓ Ok'}
+                  </Text>
+                </View>
+
+                {/* Card Meta - Web */}
+                <View style={[styles.card, { flex: 1, backgroundColor: '#fef2f2', borderColor: hasGoal ? (isLowGoalProgress ? '#ef4444' : '#10b981') : '#d1d5db', borderWidth: 1 }]}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <Text style={{ color: '#111827', fontWeight: '700', fontSize: 14 }}>🎯 Meta Financeira</Text>
+                    <TouchableOpacity
+                      onPress={handleOpenGoalModal}
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 4,
+                        borderRadius: 6,
+                        backgroundColor: hasGoal ? (isLowGoalProgress ? '#ef4444' : '#10b981') : '#6b7280',
+                      }}
+                    >
+                      <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>
+                        {hasGoal ? 'Editar' : 'Adicionar'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={{ color: '#111827', fontSize: 18, fontWeight: '800', textAlign: 'center' }}>
+                    {formatMoney(data?.goalProgress?.target_cents || 0)}
+                  </Text>
+                  {hasGoal && (
+                    <>
+                      <Text style={{ color: getGoalBarColor(), fontSize: 14, fontWeight: '700', marginTop: 4, textAlign: 'center' }}>
+                        {goalProgress}%
+                      </Text>
+                      <Text style={{ color: getGoalBarColor(), fontSize: 11, fontWeight: '600', marginTop: 1, textAlign:'center', fontStyle: 'italic' }}>
+                        {getGoalStatusText()}
+                      </Text>
+                      <View style={{
+                        height: 6,
+                        backgroundColor: '#e5e7eb',
+                        borderRadius: 3,
+                        marginTop: 8,
+                        overflow: 'hidden'
+                      }}>
+                        <View style={{
+                          height: '100%',
+                          backgroundColor: getGoalBarColor(),
+                          borderRadius: 3,
+                          width: `${Math.min(100, goalProgress)}%`
+                        }} />
+                      </View>
+                    </>
+                  )}
+                </View>
+              </View>
+            )}
+
+            {/* Layout em Duas Colunas: Gráfico + Últimas Transações */}
+            <View style={{ flexDirection: isTabletOrDesktop ? 'row' : 'column', gap: 16 }}>
+              {/* COLUNA 1 - Gráfico */}
+              <View style={{ flex: isTabletOrDesktop ? 0.6 : 1, overflow: 'hidden', maxWidth: '100%' }}>
+                {(data?.dailySeries || data?.monthlySeries || weeklyDataQuery.data?.weeklySeries) && (
+                  <View style={[styles.card, { backgroundColor: theme.card, overflow: 'hidden', maxWidth: '100%' }]}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <Text style={{ color: theme.text, fontWeight: '700', fontSize: 15 }}>
+                        {chartView === 'daily' ? 'Fluxo Diário' : chartView === 'weekly' ? 'Fluxo Semanal' : 'Fluxo Mensal'}
+                      </Text>
+                    </View>
+
+                    {/* Botões de Filtro */}
+                    <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
+                      {(['daily', 'weekly', 'monthly'] as const).map((view) => (
+                        <TouchableOpacity
+                          key={view}
+                          onPress={() => setChartView(view)}
+                          style={{
+                            paddingHorizontal: 10,
+                            paddingVertical: 6,
+                            borderRadius: 6,
+                            backgroundColor: chartView === view ? '#16A34A' : theme.card,
+                            borderWidth: 1,
+                            borderColor: '#16A34A',
+                          }}
+                        >
+                          <Text style={{ 
+                            color: chartView === view ? '#fff' : '#16A34A', 
+                            fontSize: 11, 
+                            fontWeight: '700' 
+                          }}>
+                            {view === 'daily' ? 'Diário' : view === 'weekly' ? 'Semanal' : 'Mensal'}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+
+                    {chartView === 'weekly' && (
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                        {Array.from({ length: maxMonthForMonthlyChart }, (_, i) => i + 1).map((m) => {
+                          const isActive = m - 1 === weeklyChartMonth.getMonth();
+                          return (
+                            <TouchableOpacity
+                              key={m}
+                              onPress={() => {
+                                const newDate = new Date(weeklyChartMonth);
+                                newDate.setMonth(m - 1);
+                                setWeeklyChartMonth(newDate);
+                              }}
+                              style={{
+                                paddingHorizontal: 10,
+                                paddingVertical: 4,
+                                borderRadius: 999,
+                                borderWidth: 1,
+                                borderColor: isActive ? '#16A34A' : '#9ca3af',
+                                backgroundColor: isActive ? '#dcfce7' : theme.card,
+                              }}
+                            >
+                              <Text style={{ 
+                                color: isActive ? '#16A34A' : theme.text, 
+                                fontSize: 11, 
+                                fontWeight: '700' 
+                              }}>
+                                {monthNamePt(m - 1)}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    )}
+
+                    {/* Legenda */}
+                    <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 16, marginBottom: 10 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Text style={{ color: '#16A34A', fontSize: 12 }}>●</Text>
+                        <Text style={{ color: theme.text, fontSize: 11 }}>Entradas</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Text style={{ color: '#D90429', fontSize: 12 }}>●</Text>
+                        <Text style={{ color: theme.text, fontSize: 11 }}>Saídas</Text>
+                      </View>
+                    </View>
+
+                    {/* Gráfico SVG */}
+                    <View style={{ alignItems: 'center' }}>
+                      {(() => {
+                        if (chartView === 'daily') {
+                          const dailyData = data?.dailySeries?.filter(day => day.day <= maxDayForDailyChart) || [];
+                          const dataInc = dailyData.map(d => d.income_cents / 100);
+                          const dataExp = dailyData.map(d => d.expense_cents / 100);
+                          const w = Math.max(640, dailyData.length * 40);
+                          const h = 180;
+                          const pad = 28;
+                          const iw = w - pad * 2;
+                          const ih = h - pad * 2;
+                          const n = Math.max(1, dailyData.length);
+                          const group = iw / n;
+                          const barW = Math.max(2, group * 0.35);
+                          const maxY = Math.max(1, ...dataInc, ...dataExp);
+                          const sx = (i: number) => pad + i * group;
+                          const sy = (v: number) => pad + ih - (v / maxY) * ih;
+
+                          return (
+                            <View style={{ borderWidth: 1, borderColor: '#333', borderRadius: 8, padding: Platform.OS === 'web' ? 6 : 12, width: '100%' }}>
+                              <ScrollView horizontal showsHorizontalScrollIndicator={true} style={{ width: '100%' }}>
+                                <Svg width={w} height={h}>
+                                  <SvgLine x1={pad} y1={pad} x2={pad} y2={pad + ih} stroke={theme.text} strokeWidth={1} />
+                                  <SvgLine x1={pad} y1={pad + ih} x2={pad + iw} y2={pad + ih} stroke={theme.text} strokeWidth={1} />
+                                  {dataInc.map((v, i) => (
+                                    <Rect 
+                                      key={`inc-${i}`} 
+                                      x={sx(i) - barW} 
+                                      y={sy(v)} 
+                                      width={barW} 
+                                      height={Math.max(1, pad + ih - sy(v))} 
+                                      fill="#16A34A"
+                                      {...(Platform.OS === 'web' && {
+                                        onMouseEnter: () => handleChartBarPress('daily', i, `Dia ${dailyData[i].day}`, dailyData[i].income_cents, dailyData[i].expense_cents),
+                                        onClick: () => handleChartBarPress('daily', i, `Dia ${dailyData[i].day}`, dailyData[i].income_cents, dailyData[i].expense_cents),
+                                        style: { cursor: 'pointer' }
+                                      })}
+                                    />
+                                  ))}
+                                  {dataExp.map((v, i) => (
+                                    <Rect 
+                                      key={`exp-${i}`} 
+                                      x={sx(i) + 2} 
+                                      y={sy(v)} 
+                                      width={barW} 
+                                      height={Math.max(1, pad + ih - sy(v))} 
+                                      fill="#D90429"
+                                      {...(Platform.OS === 'web' && {
+                                        onMouseEnter: () => handleChartBarPress('daily', i, `Dia ${dailyData[i].day}`, dailyData[i].income_cents, dailyData[i].expense_cents),
+                                        onClick: () => handleChartBarPress('daily', i, `Dia ${dailyData[i].day}`, dailyData[i].income_cents, dailyData[i].expense_cents),
+                                        style: { cursor: 'pointer' }
+                                      })}
+                                    />
+                                  ))}
+                                  {dailyData.map((day, i) => (
+                                    <SvgText key={`label-${i}`} x={sx(i)} y={pad + ih + 15} fill={theme.text} fontSize="10" textAnchor="middle">
+                                      {day.day}
+                                    </SvgText>
+                                  ))}
+                                </Svg>
+                              </ScrollView>
+                            </View>
+                          );
+                        }
+
+                        // Botão para mobile mostrar valores do gráfico diário
+                        if (Platform.OS !== 'web') {
+                          return (
+                            <View style={{ marginTop: 8 }}>
+                              <TouchableOpacity
+                                onPress={() => handleMobileChartPress('daily')}
+                                style={{
+                                  backgroundColor: theme.primary,
+                                  paddingHorizontal: 16,
+                                  paddingVertical: 8,
+                                  borderRadius: 6,
+                                  alignItems: 'center'
+                                }}
+                              >
+                                <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600' }}>
+                                  📊 Ver Valores do Gráfico
+                                </Text>
+                              </TouchableOpacity>
+                            </View>
+                          );
+                        }
+
+                        if (chartView === 'weekly') {
+                          const weeklyData = weeklyDataQuery.data?.weeklySeries || [];
+                          const dataInc = weeklyData.map(w => w.income_cents / 100);
+                          const dataExp = weeklyData.map(w => w.expense_cents / 100);
+                          const w = Math.max(640, weeklyData.length * 40);
+                          const h = 180;
+                          const pad = 28;
+                          const iw = w - pad * 2;
+                          const ih = h - pad * 2;
+                          const n = Math.max(1, weeklyData.length);
+                          const group = iw / n;
+                          const barW = Math.max(2, group * 0.35);
+                          const maxY = Math.max(1, ...dataInc, ...dataExp);
+                          const sx = (i: number) => pad + i * group;
+                          const sy = (v: number) => pad + ih - (v / maxY) * ih;
+
+                          return (
+                            <View style={{ borderWidth: 1, borderColor: '#333', borderRadius: 8, padding: Platform.OS === 'web' ? 6 : 12, width: '100%' }}>
+                              <ScrollView horizontal showsHorizontalScrollIndicator={true} style={{ width: '100%' }}>
+                                <Svg width={w} height={h}>
+                                  <SvgLine x1={pad} y1={pad} x2={pad} y2={pad + ih} stroke={theme.text} strokeWidth={1} />
+                                  <SvgLine x1={pad} y1={pad + ih} x2={pad + iw} y2={pad + ih} stroke={theme.text} strokeWidth={1} />
+                                  {dataInc.map((v, i) => (
+                                    <Rect 
+                                      key={`inc-${i}`} 
+                                      x={sx(i) - barW} 
+                                      y={sy(v)} 
+                                      width={barW} 
+                                      height={Math.max(1, pad + ih - sy(v))} 
+                                      fill="#16A34A"
+                                      {...(Platform.OS === 'web' && {
+                                        onMouseEnter: () => handleChartBarPress('weekly', i, `Semana ${weeklyData[i].week}`, weeklyData[i].income_cents, weeklyData[i].expense_cents),
+                                        onClick: () => handleChartBarPress('weekly', i, `Semana ${weeklyData[i].week}`, weeklyData[i].income_cents, weeklyData[i].expense_cents),
+                                        style: { cursor: 'pointer' }
+                                      })}
+                                    />
+                                  ))}
+                                  {dataExp.map((v, i) => (
+                                    <Rect 
+                                      key={`exp-${i}`} 
+                                      x={sx(i) + 2} 
+                                      y={sy(v)} 
+                                      width={barW} 
+                                      height={Math.max(1, pad + ih - sy(v))} 
+                                      fill="#D90429"
+                                      {...(Platform.OS === 'web' && {
+                                        onMouseEnter: () => handleChartBarPress('weekly', i, `Semana ${weeklyData[i].week}`, weeklyData[i].income_cents, weeklyData[i].expense_cents),
+                                        onClick: () => handleChartBarPress('weekly', i, `Semana ${weeklyData[i].week}`, weeklyData[i].income_cents, weeklyData[i].expense_cents),
+                                        style: { cursor: 'pointer' }
+                                      })}
+                                    />
+                                  ))}
+                                  {weeklyData.map((week, i) => (
+                                    <SvgText key={`label-${i}`} x={sx(i)} y={pad + ih + 15} fill={theme.text} fontSize="10" textAnchor="middle">
+                                      Sem {week.week}
+                                    </SvgText>
+                                  ))}
+                                </Svg>
+                              </ScrollView>
+                            </View>
+                          );
+                        }
+
+                        // Botão para mobile mostrar valores do gráfico semanal
+                        if (Platform.OS !== 'web') {
+                          return (
+                            <View style={{ marginTop: 8 }}>
+                              <TouchableOpacity
+                                onPress={() => handleMobileChartPress('weekly')}
+                                style={{
+                                  backgroundColor: theme.primary,
+                                  paddingHorizontal: 16,
+                                  paddingVertical: 8,
+                                  borderRadius: 6,
+                                  alignItems: 'center'
+                                }}
+                              >
+                                <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600' }}>
+                                  📊 Ver Valores do Gráfico
+                                </Text>
+                              </TouchableOpacity>
+                            </View>
+                          );
+                        }
+
+                        if (chartView === 'monthly') {
+                          const monthlyData = data?.monthlySeries?.filter(m => m.month <= maxMonthForMonthlyChart) || [];
+                          const dataInc = monthlyData.map(m => m.income_cents / 100);
+                          const dataExp = monthlyData.map(m => m.expense_cents / 100);
+                          const w = Math.max(640, monthlyData.length * 40);
+                          const h = 180;
+                          const pad = 28;
+                          const iw = w - pad * 2;
+                          const ih = h - pad * 2;
+                          const n = Math.max(1, monthlyData.length);
+                          const group = iw / n;
+                          const barW = Math.max(2, group * 0.35);
+                          const maxY = Math.max(1, ...dataInc, ...dataExp);
+                          const sx = (i: number) => pad + i * group;
+                          const sy = (v: number) => pad + ih - (v / maxY) * ih;
+
+                          return (
+                            <View style={{ borderWidth: 1, borderColor: '#333', borderRadius: 8, padding: Platform.OS === 'web' ? 6 : 12, width: '100%' }}>
+                              <ScrollView horizontal showsHorizontalScrollIndicator={true} style={{ width: '100%' }}>
+                                <Svg width={w} height={h}>
+                                  <SvgLine x1={pad} y1={pad} x2={pad} y2={pad + ih} stroke={theme.text} strokeWidth={1} />
+                                  <SvgLine x1={pad} y1={pad + ih} x2={pad + iw} y2={pad + ih} stroke={theme.text} strokeWidth={1} />
+                                  {dataInc.map((v, i) => (
+                                    <Rect 
+                                      key={`inc-${i}`} 
+                                      x={sx(i) - barW} 
+                                      y={sy(v)} 
+                                      width={barW} 
+                                      height={Math.max(1, pad + ih - sy(v))} 
+                                      fill="#16A34A"
+                                      {...(Platform.OS === 'web' && {
+                                        onMouseEnter: () => handleChartBarPress('monthly', i, monthNamePt(monthlyData[i].month - 1), monthlyData[i].income_cents, monthlyData[i].expense_cents),
+                                        onClick: () => handleChartBarPress('monthly', i, monthNamePt(monthlyData[i].month - 1), monthlyData[i].income_cents, monthlyData[i].expense_cents),
+                                        style: { cursor: 'pointer' }
+                                      })}
+                                    />
+                                  ))}
+                                  {dataExp.map((v, i) => (
+                                    <Rect 
+                                      key={`exp-${i}`} 
+                                      x={sx(i) + 2} 
+                                      y={sy(v)} 
+                                      width={barW} 
+                                      height={Math.max(1, pad + ih - sy(v))} 
+                                      fill="#D90429"
+                                      {...(Platform.OS === 'web' && {
+                                        onMouseEnter: () => handleChartBarPress('monthly', i, monthNamePt(monthlyData[i].month - 1), monthlyData[i].income_cents, monthlyData[i].expense_cents),
+                                        onClick: () => handleChartBarPress('monthly', i, monthNamePt(monthlyData[i].month - 1), monthlyData[i].income_cents, monthlyData[i].expense_cents),
+                                        style: { cursor: 'pointer' }
+                                      })}
+                                    />
+                                  ))}
+                                  {monthlyData.map((month, i) => (
+                                    <SvgText key={`label-${i}`} x={sx(i)} y={pad + ih + 15} fill={theme.text} fontSize="10" textAnchor="middle">
+                                      {monthNamePt(month.month - 1).slice(0, 3)}
+                                    </SvgText>
+                                  ))}
+                                </Svg>
+                              </ScrollView>
+                            </View>
+                          );
+                        }
+
+                        // Botão para mobile mostrar valores do gráfico mensal
+                        if (Platform.OS !== 'web') {
+                          return (
+                            <View style={{ marginTop: 8 }}>
+                              <TouchableOpacity
+                                onPress={() => handleMobileChartPress('monthly')}
+                                style={{
+                                  backgroundColor: theme.primary,
+                                  paddingHorizontal: 16,
+                                  paddingVertical: 8,
+                                  borderRadius: 6,
+                                  alignItems: 'center'
+                                }}
+                              >
+                                <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600' }}>
+                                  📊 Ver Valores do Gráfico
+                                </Text>
+                              </TouchableOpacity>
+                            </View>
+                          );
+                        }
+
+                        return null;
+                      })()}
+                    </View>
+
+                    {/* Tooltip para web - Dentro do card do gráfico */}
+                    {selectedChartData?.type === chartView && isTabletOrDesktop && (
+                      <View style={{
+                        backgroundColor: theme.card,
+                        borderWidth: 1,
+                        borderColor: '#16A34A',
+                        borderRadius: 8,
+                        padding: 12,
+                        marginTop: 12,
+                        alignItems: 'center'
+                      }}>
+                        <Text style={{ color: theme.text, fontWeight: '700', fontSize: 14, marginBottom: 8 }}>
+                          {selectedChartData?.label}
+                        </Text>
+                        <View style={{ flexDirection: 'row', gap: 16 }}>
+                          <View style={{ alignItems: 'center' }}>
+                            <Text style={{ color: '#16A34A', fontSize: 12 }}>Entradas</Text>
+                            <Text style={{ color: '#16A34A', fontWeight: '700', fontSize: 16 }}>
+                              {formatMoney(selectedChartData?.income || 0)}
+                            </Text>
+                          </View>
+                          <View style={{ alignItems: 'center' }}>
+                            <Text style={{ color: '#D90429', fontSize: 12 }}>Saídas</Text>
+                            <Text style={{ color: '#D90429', fontWeight: '700', fontSize: 16 }}>
+                              {formatMoney(selectedChartData?.expense || 0)}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                    )}
+                  </View>
+                )}
+              </View>
+
+              {/* Tooltip com valores - Aparece entre gráfico e transações no mobile */}
+              {selectedChartData?.type === chartView && !isTabletOrDesktop && (
+                <View style={{
+                  backgroundColor: theme.card,
+                  borderWidth: 2,
+                  borderColor: '#16A34A',
+                  borderRadius: 8,
+                  padding: 16,
+                  marginVertical: 12,
+                  alignItems: 'center',
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.2,
+                  shadowRadius: 8,
+                  elevation: 10
+                }}>
+                  <Text style={{ color: theme.text, fontWeight: '700', fontSize: 16, marginBottom: 12 }}>
+                    📊 {selectedChartData?.label}
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: 24 }}>
+                    <View style={{ alignItems: 'center' }}>
+                      <Text style={{ color: '#16A34A', fontSize: 12, marginBottom: 4 }}>Entradas</Text>
+                      <Text style={{ color: '#16A34A', fontWeight: '700', fontSize: 18 }}>
+                        {formatMoney(selectedChartData?.income || 0)}
+                      </Text>
+                    </View>
+                    <View style={{ alignItems: 'center' }}>
+                      <Text style={{ color: '#D90429', fontSize: 12, marginBottom: 4 }}>Saídas</Text>
+                      <Text style={{ color: '#D90429', fontWeight: '700', fontSize: 18 }}>
+                        {formatMoney(selectedChartData?.expense || 0)}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              )}
+
+              {/* COLUNA 2 - Últimas Transações */}
+              <View style={{ flex: isTabletOrDesktop ? 0.4 : 1 }}>
+                <View style={[styles.card, { backgroundColor: theme.card }]}>
+                  <Text style={{ color: theme.text, fontWeight: '700', fontSize: 15, marginBottom: 8 }}>
+                    Últimas Transações
+                  </Text>
+                   {recentTransactionsQuery.isLoading ? (
+                    <Text style={{ color: theme.text, textAlign: 'center', padding: 20 }}>Carregando...</Text>
+                  ) : recentTransactionsQuery.data && recentTransactionsQuery.data.length > 0 ? (
+                    <FlatList
+                      data={recentTransactionsQuery.data.slice(0, isTabletOrDesktop ? 8 : 5)}
+                      keyExtractor={(item) => item.id}
+                      renderItem={({ item }) => (
+                        <View style={{
+                          flexDirection: 'row',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          paddingVertical: 8,
+                          borderBottomWidth: 1,
+                          borderBottomColor: theme.border
+                        }}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: theme.text, fontSize: 13, fontWeight: '500' }}>
+                              {item.description}
+                            </Text>
+                            <Text style={{ color: '#6b7280', fontSize: 11 }}>
+                              {formatDateLocal(item.date)}
+                            </Text>
+                          </View>
+                          <Text style={{
+                            color: item.type === 'income' ? '#16A34A' : '#D90429',
+                            fontSize: 14,
+                            fontWeight: '700'
+                          }}>
+                            {item.type === 'income' ? '+' : '-'}{formatMoney(item.amount_cents)}
+                          </Text>
+                        </View>
+                      )}
+                      scrollEnabled={false}
+                    />
+                  ) : (
+                    <Text style={{ color: theme.text, textAlign: 'center', padding: 20 }}>
+                      Nenhuma transação encontrada
+                    </Text>
+                  )}
+                </View>
+              </View>
+            </View>
+          </>
+        )}
+      </ScrollView>
+
+      {/* Modal para definir meta financeira */}
+      {goalModalOpen && (
+        <View
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            justifyContent: 'center',
+            alignItems: 'center',
+            padding: 24,
+          }}
+        >
+          <View
+            style={{
+              width: '100%',
+              maxWidth: 400,
+              backgroundColor: theme.card,
+              borderRadius: 16,
+              padding: 20,
+              borderWidth: 1,
+              borderColor: theme.border,
+            }}
+          >
+            <Text style={{ color: theme.text, fontWeight: '800', fontSize: 18, marginBottom: 16, textAlign: 'center' }}>
+              🎯 Definir Meta Financeira
+            </Text>
+            <Text style={{ color: theme.textSecondary, fontSize: 14, marginBottom: 20, textAlign: 'center' }}>
+              Defina o valor da meta para {selectedMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+            </Text>
+            <TextInput
+              style={{
+                borderWidth: 1,
+                borderColor: theme.inputBorder,
+                borderRadius: 8,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                fontSize: 16,
+                color: theme.text,
+                backgroundColor: theme.input,
+                marginBottom: 20,
+              }}
+              value={goalInputValue}
+              onChangeText={setGoalInputValue}
+              placeholder="0,00"
+              placeholderTextColor={theme.textSecondary}
+              keyboardType="numeric"
+            />
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  paddingVertical: 12,
+                  borderRadius: 8,
+                  backgroundColor: theme.border,
+                  alignItems: 'center',
+                }}
+                onPress={() => setGoalModalOpen(false)}
+              >
+                <Text style={{ color: theme.text, fontWeight: '600', fontSize: 16 }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  paddingVertical: 12,
+                  borderRadius: 8,
+                  backgroundColor: theme.primary,
+                  alignItems: 'center',
+                }}
+                onPress={handleSaveGoal}
+                disabled={savingGoal}
+              >
+                <Text style={{ color: '#fff', fontWeight: '600', fontSize: 16 }}>
+                  {savingGoal ? 'Salvando...' : 'Salvar'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#f9fafb',
+  },
+  header: {
+    backgroundColor: '#16A34A',
+    paddingTop: 50,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
+  },
+  headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  title: {
+    color: '#fff',
+    fontSize: 24,
+    fontWeight: '700',
+  },
+  subtitle: {
+    color: '#fff',
+    fontSize: 14,
+    marginTop: 4,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 16,
+  },
+  summaryCard: {
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    ...Platform.select({
+      web: {
+        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+      },
+    }),
+  },
+});

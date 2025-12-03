@@ -1,0 +1,9 @@
+[build]
+  command = "npm run build:web"
+  publish = "dist"
+
+# SPA fallback so React Navigation works on refresh and deep links
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
