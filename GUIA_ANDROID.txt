@@ -1,0 +1,155 @@
+═══════════════════════════════════════════════════════════════════
+  GUIA RÁPIDO: CORRIGIR E COMPILAR APP ANDROID
+═══════════════════════════════════════════════════════════════════
+
+✅ PROBLEMA CORRIGIDO!
+O crash na aba Relatórios foi resolvido. Agora vamos compilar o app.
+
+═══════════════════════════════════════════════════════════════════
+PASSO 1: ADICIONAR LOGO AO APP
+═══════════════════════════════════════════════════════════════════
+
+Você tem 2 opções:
+
+OPÇÃO A - USAR SITE (MAIS FÁCIL):
+1. Acesse: https://icon.kitchen/
+2. Arraste "Logo Black.png" para o site
+3. Configure:
+   - Type: Adaptive Icon
+   - Background: White
+4. Clique em "Download"
+5. Extraia o ZIP
+6. Copie as pastas "mipmap-*" para:
+   C:\Users\jhona\CascadeProjects\fast-cash-flow\android\app\src\main\res\
+
+OPÇÃO B - USAR ANDROID STUDIO:
+1. Abra Android Studio
+2. File → Open
+3. Selecione: C:\Users\jhona\CascadeProjects\fast-cash-flow\android
+4. Aguarde carregar (5-10 min)
+5. Clique direito em: app → res
+6. New → Image Asset
+7. Configure:
+   - Icon Type: Launcher Icons
+   - Path: Selecione "Logo Black.png"
+   - Background: Color #FFFFFF
+8. Next → Finish
+
+═══════════════════════════════════════════════════════════════════
+PASSO 2: CONECTAR CELULAR
+═══════════════════════════════════════════════════════════════════
+
+NO CELULAR:
+1. Vá em: Configurações → Sobre o telefone
+2. Toque 7 vezes em "Número da versão"
+3. Volte e entre em "Opções do desenvolvedor"
+4. Ative: "Depuração USB"
+5. Conecte o celular no PC via USB
+6. Autorize a depuração no celular
+
+VERIFICAR CONEXÃO:
+Abra PowerShell e digite:
+  adb devices
+
+Deve aparecer o seu celular na lista.
+
+═══════════════════════════════════════════════════════════════════
+PASSO 3: COMPILAR E INSTALAR
+═══════════════════════════════════════════════════════════════════
+
+1. Abra PowerShell
+
+2. Navegue até o projeto:
+   cd C:\Users\jhona\CascadeProjects\fast-cash-flow
+
+3. Limpe o cache:
+   npx expo start --clear
+
+4. ABRA OUTRA JANELA DO POWERSHELL e execute:
+   cd C:\Users\jhona\CascadeProjects\fast-cash-flow
+   npx expo run:android
+
+5. Aguarde:
+   - Primeira vez demora 10-15 minutos
+   - Gradle vai baixar dependências
+   - App será instalado automaticamente
+
+6. App abrirá no celular!
+
+═══════════════════════════════════════════════════════════════════
+PASSO 4: TESTAR
+═══════════════════════════════════════════════════════════════════
+
+✅ Faça login
+✅ Navegue pelas abas
+✅ TESTE A ABA RELATÓRIOS (não deve mais travar!)
+✅ Teste exportar CSV
+✅ Verifique o ícone do app
+
+═══════════════════════════════════════════════════════════════════
+PROBLEMAS COMUNS
+═══════════════════════════════════════════════════════════════════
+
+PROBLEMA: "SDK location not found"
+SOLUÇÃO:
+1. Crie/edite: android\local.properties
+2. Adicione: sdk.dir=C:\\Users\\jhona\\AppData\\Local\\Android\\Sdk
+
+PROBLEMA: "Gradle build failed"
+SOLUÇÃO:
+  cd android
+  .\gradlew.bat clean
+  cd ..
+  npx expo run:android
+
+PROBLEMA: "Device not found"
+SOLUÇÃO:
+  - Reconecte o USB
+  - Autorize no celular
+  - Tente outro cabo USB
+  - Execute: adb devices
+
+PROBLEMA: App trava
+SOLUÇÃO: Ver logs em tempo real:
+  adb logcat | Select-String "ReactNative"
+
+═══════════════════════════════════════════════════════════════════
+GERAR APK PARA DISTRIBUIR
+═══════════════════════════════════════════════════════════════════
+
+Quando tudo funcionar:
+
+cd C:\Users\jhona\CascadeProjects\fast-cash-flow\android
+.\gradlew.bat assembleRelease
+
+APK estará em:
+android\app\build\outputs\apk\release\app-release.apk
+
+═══════════════════════════════════════════════════════════════════
+RESUMO DOS COMANDOS
+═══════════════════════════════════════════════════════════════════
+
+# Verificar celular conectado
+adb devices
+
+# Navegar até projeto
+cd C:\Users\jhona\CascadeProjects\fast-cash-flow
+
+# Limpar cache
+npx expo start --clear
+
+# Compilar e instalar (em outra janela)
+npx expo run:android
+
+# Ver logs (se necessário)
+adb logcat | Select-String "ReactNative"
+
+# Gerar APK final
+cd android
+.\gradlew.bat assembleRelease
+
+═══════════════════════════════════════════════════════════════════
+
+🎉 PRONTO! Agora o app Android está funcionando!
+
+Dúvidas? Me avise qual passo está com problema!
