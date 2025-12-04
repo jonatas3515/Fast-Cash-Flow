@@ -3,8 +3,11 @@ import { createDrawerNavigator } from '@react-navigation/drawer';
 import AdminCompaniesScreen from '../screens/admin/AdminCompaniesScreen';
 import AdminRequestsScreen from '../screens/admin/AdminRequestsScreen';
 import AdminReportsScreen from '../screens/admin/AdminReportsScreen';
+import AdminDashboardScreen from '../screens/admin/AdminDashboardScreen';
+import AdminBroadcastScreen from '../screens/admin/AdminBroadcastScreen';
 import DebtsScreen from '../screens/DebtsScreen';
 import AdminSettingsScreen from '../screens/admin/AdminSettingsScreen';
+import AdminInstructionsScreen from '../screens/admin/AdminInstructionsScreen';
 import CustomAdminDrawerContent from './CustomAdminDrawerContent';
 import { colors } from '../theme';
 import { View, Text, Image, TouchableOpacity, Platform, useWindowDimensions } from 'react-native';
@@ -153,6 +156,13 @@ export default function AdminTabs() {
       }}
     >
       <Drawer.Screen 
+        name="Dashboard" 
+        component={AdminDashboardScreen}
+        options={{
+          header: () => <CustomAdminHeader title="Dashboard" />,
+        }}
+      />
+      <Drawer.Screen 
         name="Empresas" 
         component={AdminCompaniesScreen}
         options={{
@@ -181,10 +191,24 @@ export default function AdminTabs() {
         }}
       />
       <Drawer.Screen 
+        name="Comunicados" 
+        component={AdminBroadcastScreen}
+        options={{
+          header: () => <CustomAdminHeader title="Comunicados" />,
+        }}
+      />
+      <Drawer.Screen 
         name="Configuração" 
         component={AdminSettingsScreen}
         options={{
           header: () => <CustomAdminHeader title="Configurações" />,
+        }}
+      />
+      <Drawer.Screen 
+        name="Instruções" 
+        component={AdminInstructionsScreen}
+        options={{
+          header: () => <CustomAdminHeader title="Instruções" />,
         }}
       />
     </Drawer.Navigator>

@@ -1,17 +1,23 @@
 import React from 'react';
 import * as SecureStore from 'expo-secure-store';
+import { getCompanyProfile, type CompanyProfile } from '../repositories/company_profile';
+import { getCurrentCompanyId } from '../lib/company';
 
 export type Settings = {
   logoUrl: string | null;
+  companyProfile: CompanyProfile | null;
 };
 
 const DEFAULTS: Settings = {
   logoUrl: null,
+  companyProfile: null,
 };
 
 const SettingsContext = React.createContext<{
   settings: Settings;
   setLogoUrl: (url: string | null) => Promise<void>;
+  setCompanyProfile: (profile: CompanyProfile | null) => void;
+  refreshCompanyProfile: () => Promise<void>;
 } | null>(null);
 
 const KEY_LOGO = 'settings.logoUrl';
@@ -29,6 +35,27 @@ async function getCompanyId(): Promise<string | null> {
 
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = React.useState<Settings>(DEFAULTS);
+
+  // Carregar perfil do negócio ao iniciar
+  React.useEffect(() => {
+    refreshCompanyProfile();
+  }, []);
+
+  const refreshCompanyProfile = React.useCallback(async () => {
+    try {
+      const companyId = await getCurrentCompanyId();
+      if (!companyId) return;
+      
+      const profile = await getCompanyProfile(companyId);
+      setSettings(s => ({ ...s, companyProfile: profile }));
+    } catch (error) {
+      console.error('Erro ao carregar perfil do negócio:', error);
+    }
+  }, []);
+
+  const setCompanyProfile = React.useCallback((profile: CompanyProfile | null) => {
+    setSettings(s => ({ ...s, companyProfile: profile }));
+  }, []);
 
   React.useEffect(() => {
     (async () => {
@@ -64,7 +91,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <SettingsContext.Provider value={{ settings, setLogoUrl }}>
+    <SettingsContext.Provider value={{ settings, setLogoUrl, setCompanyProfile, refreshCompanyProfile }}>
       {children}
     </SettingsContext.Provider>
   );

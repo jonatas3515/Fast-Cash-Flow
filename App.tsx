@@ -16,6 +16,7 @@ import SyncIndicator from './src/ui/SyncIndicator';
 import LoginGate from './src/auth/LoginGate';
 import RegisterScreen from './src/auth/RegisterScreen';
 import { ScrollbarStyles } from './src/components/ScrollbarStyles';
+import NotificationService from './src/services/notificationService';
 
 const queryClient = new QueryClient();
 
@@ -31,6 +32,7 @@ function AppInner() {
       try {
         await migrate();
         await ensureAnonAuth();
+        await NotificationService.initialize(); // Inicializar notificações
         await syncAll();
       } catch (e) {
         console.warn('DB migrate error', e);

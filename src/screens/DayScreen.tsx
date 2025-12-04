@@ -18,6 +18,7 @@ import { useSettings } from '../settings/SettingsProvider';
 import { syncAll, pushDirty } from '../lib/sync';
 import ScreenTitle from '../components/ScreenTitle';
 import FilterDropdown from '../components/FilterDropdown';
+import FilterHeader, { normalizeText } from '../components/FilterHeader';
 
 // Opções de filtro para entradas
 const INCOME_OPTIONS = [
@@ -68,10 +69,42 @@ export default function DayScreen() {
   const [isRecurring, setIsRecurring] = React.useState(false);
   const [recurrenceType, setRecurrenceType] = React.useState<RecurrenceType>('monthly');
 
+  // Estados para filtros
+  const [searchText, setSearchText] = React.useState('');
+  const [activeFilter, setActiveFilter] = React.useState('all');
+
+  // Opções de filtro para transações
+  const TRANSACTION_FILTER_OPTIONS = [
+    { key: 'all', label: 'Tudo' },
+    { key: 'income', label: 'Entradas' },
+    { key: 'expense', label: 'Saídas' },
+  ];
+
   const txQuery = useQuery({
     queryKey: ['transactions-by-date', date],
     queryFn: () => getTransactionsByDate(date),
   });
+
+  // Lógica de filtragem local
+  const filteredTransactions = React.useMemo(() => {
+    let filtered = [...(txQuery.data || [])];
+    
+    // Aplicar filtro por tipo
+    if (activeFilter !== 'all') {
+      filtered = filtered.filter(tx => tx.type === activeFilter);
+    }
+    
+    // Aplicar busca textual
+    if (searchText.trim()) {
+      const normalizedSearch = normalizeText(searchText);
+      filtered = filtered.filter(tx => 
+        normalizeText(tx.description || '').includes(normalizedSearch) ||
+        normalizeText(tx.category || '').includes(normalizedSearch)
+      );
+    }
+    
+    return filtered;
+  }, [txQuery.data, activeFilter, searchText]);
 
   const totalsQuery = useQuery({
     queryKey: ['daily-totals', date],
@@ -389,10 +422,20 @@ export default function DayScreen() {
           {/* RIGHT COLUMN: Transactions list */}
           <View style={{ flex: isWideWeb ? 1 : undefined, minWidth: isWideWeb ? 280 : undefined, width: isWideWeb ? undefined : '100%' }}>
             <Text style={[styles.subtitle, { color: theme.text }]}>{t('today_transactions')} — {date}</Text>
+            
+            <FilterHeader
+              searchValue={searchText}
+              onSearchChange={setSearchText}
+              filterOptions={TRANSACTION_FILTER_OPTIONS}
+              activeFilter={activeFilter}
+              onFilterChange={setActiveFilter}
+              searchPlaceholder="Buscar por descrição ou categoria..."
+            />
+            
             {isWideWeb ? (
               <FlatList
                 style={{ }}
-                data={txQuery.data || []}
+                data={filteredTransactions}
                 keyExtractor={(item) => item.id}
                 ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
                 scrollEnabled
@@ -416,7 +459,7 @@ export default function DayScreen() {
               />
             ) : (
               <View style={{ gap: 8 }}>
-                {(txQuery.data || []).map((item) => (
+                {filteredTransactions.map((item) => (
                   <View key={item.id} style={styles.item}>
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.itemTitle, { color: theme.text }]} numberOfLines={1}>{item.description || ''} • {item.time}</Text>

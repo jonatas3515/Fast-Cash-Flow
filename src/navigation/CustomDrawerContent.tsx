@@ -142,7 +142,11 @@ export default function CustomDrawerContent(props: DrawerContentComponentProps) 
     { name: 'Histórico de Metas', label: 'Histórico de Metas', icon: '🎯' },
     { name: 'Encomendas', label: 'Encomendas', icon: '📦', hideForAdmin: true },
     { name: 'Recorrentes', label: 'Recorrentes', icon: '🔁' },
+    { name: 'Categorias', label: 'Categorias', icon: '🏷️' },
     { name: 'Instruções', label: 'Instruções', icon: '📋' },
+    { name: 'Backup', label: 'Backup', icon: '💾' },
+    { name: 'PersonalizarDashboard', label: 'Personalizar', icon: '🎨' },
+    { name: 'Notificações', label: 'Notificações', icon: '🔔' },
     { name: 'Configuração', label: 'Configurações', icon: '⚙️' },
   ];
 

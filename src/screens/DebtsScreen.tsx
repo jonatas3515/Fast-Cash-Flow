@@ -15,6 +15,8 @@ import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
 import { useSettings } from '../settings/SettingsProvider';
 import ScreenTitle from '../components/ScreenTitle';
+import FilterHeader, { normalizeText } from '../components/FilterHeader';
+import NotificationService from '../services/notificationService';
 
 interface Debt {
   id: string;
@@ -123,6 +125,10 @@ export default function DebtsScreen() {
   const canToggleInstallments = !isAdmin || (!!selectedCompanyId && !!adminCompanyId && selectedCompanyId === adminCompanyId);
   const canManageDebtActions = canToggleInstallments;
 
+  // Estados para filtros
+  const [searchText, setSearchText] = React.useState('');
+  const [activeFilter, setActiveFilter] = React.useState('all');
+
   // Block non-admin users if their company is deleted (soft delete)
   React.useEffect(() => {
     (async () => {
@@ -161,6 +167,66 @@ export default function DebtsScreen() {
     enabled: true,
   });
 
+  // Opções de filtro para dívidas
+  const DEBT_FILTER_OPTIONS = [
+    { key: 'all', label: 'Todas' },
+    { key: 'on_time', label: 'Em dia' },
+    { key: 'overdue', label: 'Em atraso' },
+    { key: 'paid', label: 'Quitadas' },
+  ];
+
+  // Lógica de filtragem local
+  const filteredDebts = React.useMemo(() => {
+    let filtered = [...(debtsQuery.data || [])];
+    const today = todayYMD();
+    
+    // Aplicar filtro por status
+    if (activeFilter !== 'all') {
+      filtered = filtered.filter(debt => {
+        const paidCount = debt.paid_installments || 0;
+        const isPaid = paidCount >= debt.installment_count;
+        
+        if (activeFilter === 'paid') {
+          return isPaid;
+        } else if (activeFilter === 'on_time' || activeFilter === 'overdue') {
+          if (isPaid) return false; // Dívidas quitadas não aparecem em "em dia" ou "em atraso"
+          
+          // Verificar se há parcelas em atraso
+          const baseDue = debt.invoice_due_date || debt.start_date;
+          if (!baseDue || !/^\d{4}-\d{2}-\d{2}$/.test(baseDue)) return false;
+          
+          const [y, m, d] = baseDue.split('-').map(Number);
+          for (let i = 0; i < debt.installment_count; i++) {
+            if (i < paidCount) continue; // Pular parcelas já pagas
+            
+            const dueDate = new Date(y, (m - 1) + i, d);
+            const dueDateStr = dueDate.toISOString().split('T')[0];
+            
+            if (today > dueDateStr) {
+              // Encontrou parcela em atraso
+              return activeFilter === 'overdue';
+            }
+          }
+          
+          // Não encontrou parcelas em atraso e não está quitada
+          return activeFilter === 'on_time';
+        }
+        
+        return true;
+      });
+    }
+    
+    // Aplicar busca textual
+    if (searchText.trim()) {
+      const normalizedSearch = normalizeText(searchText);
+      filtered = filtered.filter(debt => 
+        normalizeText(debt.description).includes(normalizedSearch)
+      );
+    }
+    
+    return filtered;
+  }, [debtsQuery.data, activeFilter, searchText]);
+
   // Query para buscar configurações do dashboard
   const settingsQuery = useQuery({
     queryKey: ['dashboard-settings'],
@@ -186,7 +252,7 @@ export default function DebtsScreen() {
       if (!companyId) throw new Error('Empresa não identificada');
       return await createDebtRepo(companyId, payload);
     },
-    onSuccess: () => {
+    onSuccess: async (data, variables) => {
       qc.invalidateQueries({ queryKey: ['debts'] });
       setDescription('');
       setTotalAmount('');
@@ -195,6 +261,23 @@ export default function DebtsScreen() {
       setInvoiceDueDay('');
       setInvoiceDueMonth('');
       toast.show('Dívida cadastrada', 'success');
+      
+      // Agendar notificações para a dívida
+      try {
+        const preferences = await NotificationService.getNotificationPreferences();
+        if (preferences?.debts && variables.invoice_due_date) {
+          // Usar a data de vencimento direta do input
+          const dueDate = new Date(variables.invoice_due_date);
+          
+          await NotificationService.scheduleDebtReminder(
+            variables.description,
+            variables.total_cents / 100,
+            dueDate
+          );
+        }
+      } catch (error) {
+        console.error('Erro ao agendar notificações da dívida:', error);
+      }
     },
     onError: (e: any) => toast.show(`Erro ao cadastrar dívida: ${e?.message || ''}`.trim(), 'error'),
   });
@@ -839,16 +922,26 @@ export default function DebtsScreen() {
                 <Text style={{ color: '#fff', fontWeight: '700' }}>Gerar relatório</Text>
               </TouchableOpacity>
             </View>
+            
+            <FilterHeader
+              searchValue={searchText}
+              onSearchChange={setSearchText}
+              filterOptions={DEBT_FILTER_OPTIONS}
+              activeFilter={activeFilter}
+              onFilterChange={setActiveFilter}
+              searchPlaceholder="Buscar por descrição..."
+            />
+            
             <View>
-              {(debtsQuery.data || []).length === 0 ? (
+              {filteredDebts.length === 0 ? (
                 <Text style={{ color: '#888', textAlign: 'center', marginTop: 20 }}>
-                  Nenhuma dívida cadastrada
+                  {searchText || activeFilter !== 'all' ? 'Nenhuma dívida encontrada para os filtros aplicados' : 'Nenhuma dívida cadastrada'}
                 </Text>
               ) : (
-                (debtsQuery.data || []).map((item, index) => (
+                filteredDebts.map((item, index) => (
                   <View key={item.id}>
                     {renderDebt({ item })}
-                    {index < (debtsQuery.data || []).length - 1 && <View style={{ height: 8 }} />}
+                    {index < filteredDebts.length - 1 && <View style={{ height: 8 }} />}
                   </View>
                 ))
               )}

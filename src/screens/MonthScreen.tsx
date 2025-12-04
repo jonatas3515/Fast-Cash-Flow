@@ -14,6 +14,7 @@ import * as Sharing from 'expo-sharing';
 import { Alert, TextInput } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 import { useSettings } from '../settings/SettingsProvider';
+import FilterHeader, { normalizeText } from '../components/FilterHeader';
 
 export default function MonthScreen() {
   const start = getCurrentYearMonth();
@@ -22,6 +23,17 @@ export default function MonthScreen() {
   const { t, lang, formatMoney } = useI18n();
   const { settings } = useSettings();
   const [mmYYYY, setMmYYYY] = React.useState(''); // MM/YYYY
+
+  // Estados para filtros
+  const [searchText, setSearchText] = React.useState('');
+  const [activeFilter, setActiveFilter] = React.useState('all');
+
+  // Opções de filtro para transações
+  const TRANSACTION_FILTER_OPTIONS = [
+    { key: 'all', label: 'Tudo' },
+    { key: 'income', label: 'Entradas' },
+    { key: 'expense', label: 'Saídas' },
+  ];
 
   const totalsQ = useQuery({
     queryKey: ['month-totals', ym.year, ym.month],
@@ -32,6 +44,33 @@ export default function MonthScreen() {
     queryKey: ['month-series', ym.year, ym.month],
     queryFn: () => getMonthlyDailySeries(ym.year, ym.month),
   });
+
+  // Query para buscar transações do mês
+  const transactionsQ = useQuery({
+    queryKey: ['month-transactions', ym.year, ym.month],
+    queryFn: () => getTransactionsByMonth(ym.year, ym.month),
+  });
+
+  // Lógica de filtragem local
+  const filteredTransactions = React.useMemo(() => {
+    let filtered = [...(transactionsQ.data || [])];
+    
+    // Aplicar filtro por tipo
+    if (activeFilter !== 'all') {
+      filtered = filtered.filter(tx => tx.type === activeFilter);
+    }
+    
+    // Aplicar busca textual
+    if (searchText.trim()) {
+      const normalizedSearch = normalizeText(searchText);
+      filtered = filtered.filter(tx => 
+        normalizeText(tx.description || '').includes(normalizedSearch) ||
+        normalizeText(tx.category || '').includes(normalizedSearch)
+      );
+    }
+    
+    return filtered;
+  }, [transactionsQ.data, activeFilter, searchText]);
 
   // Query para buscar configurações do dashboard
   const settingsQuery = useQuery({
@@ -53,6 +92,7 @@ export default function MonthScreen() {
     React.useCallback(() => {
       totalsQ.refetch();
       seriesQ.refetch();
+      transactionsQ.refetch();
     }, [ym.year, ym.month])
   );
 
@@ -235,6 +275,49 @@ export default function MonthScreen() {
           }} style={{ backgroundColor: '#16A34A', paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10 }}>
             <Text style={{ color: '#fff', fontWeight: '700' }}>Aplicar</Text>
           </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Lista de transações do mês */}
+      <View style={[styles.cardFull, { backgroundColor: theme.card }]}>
+        <Text style={[styles.cardLabel, { color: theme.text }]}>{t('transactions')} - {monthNamePt(ym.month)} {ym.year}</Text>
+        
+        <FilterHeader
+          searchValue={searchText}
+          onSearchChange={setSearchText}
+          filterOptions={TRANSACTION_FILTER_OPTIONS}
+          activeFilter={activeFilter}
+          onFilterChange={setActiveFilter}
+          searchPlaceholder="Buscar por descrição ou categoria..."
+        />
+        
+        <View style={{ maxHeight: 300 }}>
+          {filteredTransactions.length === 0 ? (
+            <Text style={{ color: '#888', textAlign: 'center', marginTop: 20 }}>
+              {searchText || activeFilter !== 'all' ? 'Nenhuma transação encontrada para os filtros aplicados' : 'Nenhuma transação neste mês'}
+            </Text>
+          ) : (
+            filteredTransactions.map((item) => (
+              <View key={item.id} style={{ paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#eee' }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: theme.text, fontWeight: '500' }}>
+                      {item.description || ''} • {item.date}
+                    </Text>
+                    <Text style={{ color: '#888', fontSize: 12 }}>
+                      {item.category || '—'}
+                    </Text>
+                  </View>
+                  <Text style={{ 
+                    color: item.type === 'income' ? '#16A34A' : '#D90429', 
+                    fontWeight: '700' 
+                  }}>
+                    {formatMoney(item.amount_cents)}
+                  </Text>
+                </View>
+              </View>
+            ))
+          )}
         </View>
       </View>
     </View>

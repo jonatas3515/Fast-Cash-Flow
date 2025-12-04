@@ -95,11 +95,14 @@ export default function CustomAdminDrawerContent(props: DrawerContentComponentPr
   }, []);
 
   const menuItems = [
+    { name: 'Dashboard', label: 'Dashboard', icon: '📈' },
     { name: 'Empresas', label: 'Empresas', icon: '🏢' },
     { name: 'Solicitações', label: 'Solicitações', icon: '📥' },
     { name: 'Débitos', label: 'Débitos', icon: '💳' },
     { name: 'Relatórios', label: 'Relatórios', icon: '📊' },
+    { name: 'Comunicados', label: 'Comunicados', icon: '📢' },
     { name: 'Configuração', label: 'Configurações', icon: '⚙️' },
+    { name: 'Instruções', label: 'Instruções', icon: '📖' },
   ];
 
   // Logo do admin

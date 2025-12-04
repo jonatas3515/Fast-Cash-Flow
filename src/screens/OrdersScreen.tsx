@@ -13,6 +13,7 @@ import { getCurrentCompanyId, getAdminAppCompanyId } from '../lib/company';
 import { createTransaction, softDeleteTransaction, getTransactionsByDate, Transaction } from '../repositories/transactions';
 import ScreenTitle from '../components/ScreenTitle';
 import OrderNotification from '../components/OrderNotification';
+import FilterHeader, { normalizeText } from '../components/FilterHeader';
 
 interface Order {
   id: string;
@@ -42,10 +43,11 @@ interface CreateOrderInput {
 
 
 const ORDER_STATUS = [
-  { key: 'pending', label: 'Pendente', color: '#f59e0b' },
+  { key: 'all', label: 'Todos', color: '#6b7280' },
+  { key: 'pending', label: 'A receber', color: '#f59e0b' },
   { key: 'in_progress', label: 'Em Andamento', color: '#3b82f6' },
-  { key: 'completed', label: 'Concluído', color: '#10b981' },
-  { key: 'cancelled', label: 'Cancelado', color: '#ef4444' },
+  { key: 'completed', label: 'Recebidos', color: '#10b981' },
+  { key: 'cancelled', label: 'Cancelados', color: '#ef4444' },
 ];
 
 // Função para obter data futura (dias no futuro)
@@ -293,6 +295,10 @@ export default function OrdersScreen() {
   const [orderValueText, setOrderValueText] = React.useState('');
   const [downPaymentText, setDownPaymentText] = React.useState('');
 
+  // Estados para filtros
+  const [searchText, setSearchText] = React.useState('');
+  const [activeFilter, setActiveFilter] = React.useState('all');
+
   React.useEffect(() => {
     (async () => {
       try {
@@ -349,6 +355,28 @@ export default function OrdersScreen() {
     queryFn: () => listOrders(companyId),
     enabled: !!companyId,
   });
+
+  // Lógica de filtragem local
+  const filteredOrders = React.useMemo(() => {
+    let filtered = [...orders];
+    
+    // Aplicar filtro por status
+    if (activeFilter !== 'all') {
+      filtered = filtered.filter(order => order.status === activeFilter);
+    }
+    
+    // Aplicar busca textual
+    if (searchText.trim()) {
+      const normalizedSearch = normalizeText(searchText);
+      filtered = filtered.filter(order => 
+        normalizeText(order.client_name).includes(normalizedSearch) ||
+        normalizeText(order.order_type).includes(normalizedSearch) ||
+        normalizeText(order.notes || '').includes(normalizedSearch)
+      );
+    }
+    
+    return filtered;
+  }, [orders, activeFilter, searchText]);
 
   // Verificar encomendas do dia seguinte e mostrar notificação
   React.useEffect(() => {
@@ -869,20 +897,29 @@ export default function OrdersScreen() {
 
         {/* COLUNA DIREITA - LISTA DE ENCOMENDAS */}
         <View style={{ width: isWideWeb ? '48%' : '100%', gap: 12 }}>
+          <FilterHeader
+            searchValue={searchText}
+            onSearchChange={setSearchText}
+            filterOptions={ORDER_STATUS}
+            activeFilter={activeFilter}
+            onFilterChange={setActiveFilter}
+            searchPlaceholder="Buscar por cliente, tipo ou observações..."
+          />
+          
           {isLoading ? (
             <Text style={[styles.loadingText, { color: theme.text }]}>Carregando...</Text>
-          ) : orders.length === 0 ? (
+          ) : filteredOrders.length === 0 ? (
             <View style={styles.emptyState}>
               <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
-                Nenhuma encomenda encontrada
+                {searchText || activeFilter !== 'all' ? 'Nenhuma encomenda encontrada para os filtros aplicados' : 'Nenhuma encomenda encontrada'}
               </Text>
               <Text style={[styles.emptySubtext, { color: theme.textSecondary }]}>
-                Adicione sua primeira encomenda usando o formulário ao lado
+                {searchText || activeFilter !== 'all' ? 'Tente ajustar os filtros ou buscar com outros termos' : 'Adicione sua primeira encomenda usando o formulário ao lado'}
               </Text>
             </View>
           ) : (
             <View style={styles.ordersList}>
-              {orders.map((order) => (
+              {filteredOrders.map((order) => (
                 <View key={order.id}>
                   {renderOrderItem({ item: order })}
                 </View>

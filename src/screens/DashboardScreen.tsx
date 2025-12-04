@@ -2,22 +2,23 @@ import React from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet, useWindowDimensions, Platform, Alert, TextInput, FlatList } from 'react-native';
 import { Svg, Rect, Text as SvgText, Line as SvgLine } from 'react-native-svg';
 import { InteractiveBar, InteractiveChart } from '../components/InteractiveBar';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import { useThemeCtx } from '../theme/ThemeProvider';
 import { useI18n } from '../i18n/I18nProvider';
 import { useToast } from '../ui/ToastProvider';
 import { useSettings } from '../settings/SettingsProvider';
-import { getMonthlyTotals, getMonthlyDailySeries, getMonthlyWeeklySeries, getYearlyMonthlySeries, getTransactionsByMonth } from '../repositories/transactions';
+import { getMonthlyTotals, getMonthlyDailySeries, getMonthlyWeeklySeries, getYearlyMonthlySeries, getTransactionsByMonth, createTransaction, TxType } from '../repositories/transactions';
 import { getWeeklyTotals } from '../repositories/transactions';
 import { getGoalByMonth, createGoal, updateGoal, deleteGoal } from '../repositories/financial_goals';
-import { listDebtsByDate, listAllDebts } from '../repositories/debts';
+import { listDebtsByDate, listAllDebts, createDebt } from '../repositories/debts';
 import { getOrCreateSettings } from '../repositories/dashboard_settings';
 import { getCurrentCompanyId } from '../lib/company';
 import NativeDatePicker from '../utils/NativeDatePicker';
-import { todayYMD } from '../utils/date';
+import { todayYMD, nowHM } from '../utils/date';
 import { formatCentsBRL, parseBRLToCents, maskBRLInput } from '../utils/money';
 import ScreenTitle from '../components/ScreenTitle';
+import { getRecommendationByGoal } from '../repositories/company_profile';
 
 // Função utilitária para formatação de data local
 const formatDateLocal = (dateString: string) => {
@@ -72,6 +73,7 @@ export default function DashboardScreen() {
   const { theme } = useThemeCtx();
   const { formatMoney } = useI18n();
   const { show } = useToast();
+  const { settings } = useSettings();
   const { width } = useWindowDimensions();
   const isWeb = Platform.OS === 'web';
   const isWideWeb = isWeb && width >= 1024;
@@ -97,6 +99,30 @@ export default function DashboardScreen() {
   const [overdueModalDismissed, setOverdueModalDismissed] = React.useState(false);
   const [savingGoal, setSavingGoal] = React.useState(false);
 
+  // Estados para lançamento rápido
+  const [showQuickActionModal, setShowQuickActionModal] = React.useState(false);
+  const [quickActionType, setQuickActionType] = React.useState<'income' | 'expense' | 'debt' | null>(null);
+  const [quickAmount, setQuickAmount] = React.useState('');
+  const [quickDescription, setQuickDescription] = React.useState('');
+  const [quickCategory, setQuickCategory] = React.useState('');
+  const [quickDebtAmount, setQuickDebtAmount] = React.useState('');
+  const [quickDebtDescription, setQuickDebtDescription] = React.useState('');
+  const [quickDebtInstallments, setQuickDebtInstallments] = React.useState('1');
+
+  // Helper para converter tipo de lançamento rápido para TxType
+  const getTxType = (type: 'income' | 'expense'): TxType => type;
+
+  // Opções de categoria para lançamento rápido
+  const INCOME_OPTIONS = [
+    'Bolo', 'Delivery', 'Doces', 'Encomenda', 'Kit Festa', 
+    'Pizzas', 'Refrigerante', 'Retirada', 'Salgados', 'Outros'
+  ];
+  
+  const EXPENSE_OPTIONS = [
+    'Aluguel', 'Conta de Água', 'Conta de Energia', 'Empréstimo', 
+    'Gasolina', 'Pessoal', 'Reposição', 'Telefone', 'Outros'
+  ];
+
   const getGoalBarColor = () => {
     const goalProgress = data?.goalProgress?.percent || 0;
     const hasGoal = !!data?.goalProgress?.target_cents;
@@ -105,6 +131,130 @@ export default function DashboardScreen() {
     if (goalProgress >= 75) return '#3b82f6';
     if (goalProgress >= 50) return '#f59e0b';
     return '#ef4444';
+  };
+
+  // Mutations para lançamento rápido
+  const quickTransactionMutation = useMutation({
+    mutationFn: async (data: { type: TxType; amount_cents: number; description: string; category: string }) => {
+      const companyId = await getCurrentCompanyId();
+      if (!companyId) throw new Error('Empresa não identificada');
+      
+      const datetime = new Date().toISOString();
+      
+      return await createTransaction({
+        company_id: companyId,
+        type: data.type,
+        amount_cents: data.amount_cents,
+        description: data.description,
+        category: data.category,
+        date: todayYMD(),
+        time: nowHM(),
+        datetime,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['month-totals'] });
+      queryClient.invalidateQueries({ queryKey: ['month-series'] });
+      queryClient.invalidateQueries({ queryKey: ['week-totals'] });
+      queryClient.invalidateQueries({ queryKey: ['year-totals'] });
+      show('Lançamento registrado com sucesso!', 'success');
+      resetQuickAction();
+    },
+    onError: (error: any) => {
+      show('Erro ao registrar lançamento: ' + error.message, 'error');
+    },
+  });
+
+  const quickDebtMutation = useMutation({
+    mutationFn: async (data: { description: string; total_cents: number; installment_count: number }) => {
+      const companyId = await getCurrentCompanyId();
+      if (!companyId) throw new Error('Empresa não identificada');
+      
+      const installment_cents = Math.round(data.total_cents / data.installment_count);
+      const start_date = todayYMD();
+      
+      // Calcular data final (último dia do mês após as parcelas)
+      const endDate = new Date(start_date);
+      endDate.setMonth(endDate.getMonth() + data.installment_count);
+      const end_date_str = endDate.toISOString().split('T')[0];
+      
+      return await createDebt(companyId, {
+        description: data.description,
+        total_cents: data.total_cents,
+        installment_count: data.installment_count,
+        installment_cents,
+        start_date,
+        end_date: end_date_str,
+        invoice_due_date: start_date, // Vencimento no dia da compra
+        paid_installments: 0, // Iniciar com 0 parcelas pagas
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['debts'] });
+      show('Dívida registrada com sucesso!', 'success');
+      resetQuickAction();
+    },
+    onError: (error: any) => {
+      show('Erro ao registrar dívida: ' + error.message, 'error');
+    },
+  });
+
+  // Funções auxiliares
+  const resetQuickAction = () => {
+    setShowQuickActionModal(false);
+    setQuickActionType(null);
+    setQuickAmount('');
+    setQuickDescription('');
+    setQuickCategory('');
+    setQuickDebtAmount('');
+    setQuickDebtDescription('');
+    setQuickDebtInstallments('1');
+  };
+
+  const handleQuickTransaction = () => {
+    if (!quickActionType || quickActionType === 'debt' || !quickAmount) {
+      show('Preencha o valor do lançamento', 'error');
+      return;
+    }
+    
+    const amount_cents = parseBRLToCents(quickAmount);
+    if (amount_cents <= 0) {
+      show('Valor deve ser maior que zero', 'error');
+      return;
+    }
+    
+    quickTransactionMutation.mutate({
+      type: getTxType(quickActionType),
+      amount_cents,
+      description: quickDescription || `${quickActionType === 'income' ? 'Entrada' : 'Saída'} rápida`,
+      category: quickCategory || 'Outros',
+    });
+  };
+
+  const handleQuickDebt = () => {
+    if (!quickDebtAmount || !quickDebtDescription) {
+      show('Preencha descrição e valor da dívida', 'error');
+      return;
+    }
+    
+    const total_cents = parseBRLToCents(quickDebtAmount);
+    const installment_count = parseInt(quickDebtInstallments, 10) || 1;
+    
+    if (total_cents <= 0) {
+      show('Valor deve ser maior que zero', 'error');
+      return;
+    }
+    
+    if (installment_count < 1) {
+      show('Número de parcelas deve ser maior que zero', 'error');
+      return;
+    }
+    
+    quickDebtMutation.mutate({
+      description: quickDebtDescription,
+      total_cents,
+      installment_count,
+    });
   };
 
   const getGoalStatusText = () => {
@@ -144,6 +294,12 @@ export default function DashboardScreen() {
     const newDate = new Date(selectedMonth);
     newDate.setMonth(newDate.getMonth() + 1);
     setSelectedMonth(newDate);
+  };
+
+  // Obter recomendação baseada no perfil do negócio
+  const getBusinessRecommendation = () => {
+    if (!settings.companyProfile?.main_goal) return null;
+    return getRecommendationByGoal(settings.companyProfile.main_goal);
   };
 
   // Query principal do dashboard
@@ -371,6 +527,16 @@ export default function DashboardScreen() {
           </View>
         )}
 
+        {/* Recomendações Baseadas no Perfil */}
+        {getBusinessRecommendation() && (
+          <View style={{ backgroundColor: '#F0FDF4', borderColor: '#16A34A', borderWidth: 1, borderRadius: 8, padding: 12 }}>
+            <Text style={{ color: '#16A34A', fontWeight: '700', fontSize: 14, marginBottom: 8 }}>📊 Recomendação para Você</Text>
+            <Text style={{ color: '#15803D', fontSize: 12, lineHeight: 18 }}>
+              {getBusinessRecommendation()}
+            </Text>
+          </View>
+        )}
+
         {/* Period Selector */}
         <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
           <TouchableOpacity
@@ -490,9 +656,11 @@ export default function DashboardScreen() {
 
                 {/* Linha 3: Meta Financeira */}
                 <View style={{ flexDirection: 'row', gap: 8 }}>
-                  <View style={[styles.summaryCard, { flex: 1, backgroundColor: '#fef2f2', borderColor: hasGoal ? (isLowGoalProgress ? '#ef4444' : '#10b981') : '#d1d5db', borderWidth: 1 }]}>
+                  <View style={[styles.summaryCard, { flex: 1, backgroundColor: settings.companyProfile?.main_goal === 'save_investments' ? '#f0fdf4' : '#fef2f2', borderColor: hasGoal ? (isLowGoalProgress ? '#ef4444' : '#10b981') : '#d1d5db', borderWidth: 1 }]}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                      <Text style={{ color: '#111827', fontWeight: '700', fontSize: 11 }}>🎯 Meta</Text>
+                      <Text style={{ color: '#111827', fontWeight: '700', fontSize: 11 }}>
+                        🎯 Meta{settings.companyProfile?.main_goal === 'save_investments' && ' 💹'}
+                      </Text>
                       <TouchableOpacity
                         onPress={handleOpenGoalModal}
                         style={{
@@ -810,7 +978,7 @@ export default function DashboardScreen() {
               {/* COLUNA 2 - Resumo e Lançamentos */}
               <View style={{ flex: isTabletOrDesktop ? 0.4 : 1, gap: 12 }}>
                 {/* Cards lado a lado */}
-                <View style={{ flexDirection: isTabletOrDesktop ? 'column' : 'row', gap: 12 }}>
+                <View style={{ flexDirection: 'column', gap: 12 }}>
                   {/* Resumo Rápido */}
                   <View style={[styles.card, { backgroundColor: theme.card, flex: 1, minHeight: 180 }]}>
                     <Text style={{ color: theme.text, fontWeight: '700', fontSize: 14, marginBottom: 10 }}>
@@ -1010,6 +1178,233 @@ export default function DashboardScreen() {
                 <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '700' }}>Ver Dívidas</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      )}
+
+      {/* Botão Flutuante de Ação Rápida */}
+      <TouchableOpacity
+        style={{
+          position: 'absolute',
+          bottom: 24,
+          right: 24,
+          backgroundColor: '#16a34a',
+          width: 56,
+          height: 56,
+          borderRadius: 28,
+          justifyContent: 'center',
+          alignItems: 'center',
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.25,
+          shadowRadius: 4,
+          elevation: 5,
+          zIndex: 1000,
+        }}
+        onPress={() => setShowQuickActionModal(true)}
+      >
+        <Text style={{ color: '#fff', fontSize: 24, fontWeight: 'bold' }}>⚡</Text>
+      </TouchableOpacity>
+
+      {/* Modal de Seleção de Ação Rápida */}
+      {showQuickActionModal && !quickActionType && (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', zIndex: 1001 }}>
+          <View style={{ backgroundColor: theme.card, padding: 24, borderRadius: 16, width: '90%', maxWidth: 400 }}>
+            <Text style={{ color: theme.text, fontSize: 20, fontWeight: '800', marginBottom: 20, textAlign: 'center' }}>
+              ⚡ Lançamento Rápido
+            </Text>
+            
+            <View style={{ gap: 12 }}>
+              <TouchableOpacity
+                style={{ backgroundColor: '#16a34a', padding: 16, borderRadius: 12, flexDirection: 'row', alignItems: 'center', gap: 12 }}
+                onPress={() => setQuickActionType('income')}
+              >
+                <Text style={{ color: '#fff', fontSize: 20 }}>💰</Text>
+                <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>Registrar Entrada</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={{ backgroundColor: '#dc2626', padding: 16, borderRadius: 12, flexDirection: 'row', alignItems: 'center', gap: 12 }}
+                onPress={() => setQuickActionType('expense')}
+              >
+                <Text style={{ color: '#fff', fontSize: 20 }}>💸</Text>
+                <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>Registrar Saída</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={{ backgroundColor: '#f59e0b', padding: 16, borderRadius: 12, flexDirection: 'row', alignItems: 'center', gap: 12 }}
+                onPress={() => setQuickActionType('debt')}
+              >
+                <Text style={{ color: '#fff', fontSize: 20 }}>💳</Text>
+                <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>Adicionar Dívida</Text>
+              </TouchableOpacity>
+            </View>
+            
+            <TouchableOpacity
+              style={{ backgroundColor: '#6b7280', padding: 12, borderRadius: 8, marginTop: 20 }}
+              onPress={() => setShowQuickActionModal(false)}
+            >
+              <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '700' }}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Modal de Entrada/Saída Rápida */}
+      {showQuickActionModal && (quickActionType === 'income' || quickActionType === 'expense') && (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', zIndex: 1001 }}>
+          <View style={{ backgroundColor: theme.card, padding: 24, borderRadius: 16, width: '90%', maxWidth: 400 }}>
+            <Text style={{ color: theme.text, fontSize: 20, fontWeight: '800', marginBottom: 20, textAlign: 'center' }}>
+              {quickActionType === 'income' ? '💰 Entrada Rápida' : '💸 Saída Rápida'}
+            </Text>
+            
+            <View style={{ gap: 16 }}>
+              <View>
+                <Text style={{ color: theme.text, marginBottom: 8 }}>Valor *</Text>
+                <TextInput
+                  style={{ borderWidth: 1, borderColor: theme.inputBorder, borderRadius: 8, padding: 12, color: theme.text, backgroundColor: theme.input }}
+                  value={quickAmount}
+                  onChangeText={setQuickAmount}
+                  placeholder="R$ 0,00"
+                  placeholderTextColor="#999"
+                  keyboardType="numeric"
+                />
+              </View>
+              
+              <View>
+                <Text style={{ color: theme.text, marginBottom: 8 }}>Descrição</Text>
+                <TextInput
+                  style={{ borderWidth: 1, borderColor: theme.inputBorder, borderRadius: 8, padding: 12, color: theme.text, backgroundColor: theme.input }}
+                  value={quickDescription}
+                  onChangeText={setQuickDescription}
+                  placeholder="Opcional"
+                  placeholderTextColor="#999"
+                />
+              </View>
+              
+              <View>
+                <Text style={{ color: theme.text, marginBottom: 8 }}>Categoria</Text>
+                <ScrollView style={{ maxHeight: 120, borderWidth: 1, borderColor: theme.inputBorder, borderRadius: 8 }}>
+                  {(quickActionType === 'income' ? INCOME_OPTIONS : EXPENSE_OPTIONS).map((option) => (
+                    <TouchableOpacity
+                      key={option}
+                      style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' }}
+                      onPress={() => setQuickCategory(option)}
+                    >
+                      <Text style={{ color: quickCategory === option ? '#16a34a' : theme.text, fontWeight: quickCategory === option ? '700' : '500' }}>
+                        {option}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            </View>
+            
+            <View style={{ flexDirection: 'row', gap: 12, marginTop: 20 }}>
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: '#6b7280', padding: 12, borderRadius: 8 }}
+                onPress={() => setQuickActionType(null)}
+              >
+                <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '700' }}>Voltar</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: quickActionType === 'income' ? '#16a34a' : '#dc2626', padding: 12, borderRadius: 8 }}
+                onPress={handleQuickTransaction}
+                disabled={quickTransactionMutation.isPending}
+              >
+                <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '700' }}>
+                  {quickTransactionMutation.isPending ? 'Salvando...' : 'Salvar'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            
+            <TouchableOpacity
+              style={{ backgroundColor: '#f3f4f6', padding: 8, borderRadius: 6, marginTop: 12 }}
+              onPress={() => {
+                resetQuickAction();
+                (navigation as any).navigate(quickActionType === 'income' ? 'Dia' : 'Dia');
+              }}
+            >
+              <Text style={{ color: '#6b7280', textAlign: 'center', fontSize: 12 }}>Mais opções...</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Modal de Dívida Simples */}
+      {showQuickActionModal && quickActionType === 'debt' && (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', zIndex: 1001 }}>
+          <View style={{ backgroundColor: theme.card, padding: 24, borderRadius: 16, width: '90%', maxWidth: 400 }}>
+            <Text style={{ color: theme.text, fontSize: 20, fontWeight: '800', marginBottom: 20, textAlign: 'center' }}>
+              💳 Dívida Simples
+            </Text>
+            
+            <View style={{ gap: 16 }}>
+              <View>
+                <Text style={{ color: theme.text, marginBottom: 8 }}>Descrição *</Text>
+                <TextInput
+                  style={{ borderWidth: 1, borderColor: theme.inputBorder, borderRadius: 8, padding: 12, color: theme.text, backgroundColor: theme.input }}
+                  value={quickDebtDescription}
+                  onChangeText={setQuickDebtDescription}
+                  placeholder="Ex: Compra de celular"
+                  placeholderTextColor="#999"
+                />
+              </View>
+              
+              <View>
+                <Text style={{ color: theme.text, marginBottom: 8 }}>Valor Total *</Text>
+                <TextInput
+                  style={{ borderWidth: 1, borderColor: theme.inputBorder, borderRadius: 8, padding: 12, color: theme.text, backgroundColor: theme.input }}
+                  value={quickDebtAmount}
+                  onChangeText={setQuickDebtAmount}
+                  placeholder="R$ 0,00"
+                  placeholderTextColor="#999"
+                  keyboardType="numeric"
+                />
+              </View>
+              
+              <View>
+                <Text style={{ color: theme.text, marginBottom: 8 }}>Número de Parcelas</Text>
+                <TextInput
+                  style={{ borderWidth: 1, borderColor: theme.inputBorder, borderRadius: 8, padding: 12, color: theme.text, backgroundColor: theme.input }}
+                  value={quickDebtInstallments}
+                  onChangeText={setQuickDebtInstallments}
+                  placeholder="1"
+                  placeholderTextColor="#999"
+                  keyboardType="numeric"
+                />
+              </View>
+            </View>
+            
+            <View style={{ flexDirection: 'row', gap: 12, marginTop: 20 }}>
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: '#6b7280', padding: 12, borderRadius: 8 }}
+                onPress={() => setQuickActionType(null)}
+              >
+                <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '700' }}>Voltar</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: '#f59e0b', padding: 12, borderRadius: 8 }}
+                onPress={handleQuickDebt}
+                disabled={quickDebtMutation.isPending}
+              >
+                <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '700' }}>
+                  {quickDebtMutation.isPending ? 'Salvando...' : 'Salvar'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            
+            <TouchableOpacity
+              style={{ backgroundColor: '#f3f4f6', padding: 8, borderRadius: 6, marginTop: 12 }}
+              onPress={() => {
+                resetQuickAction();
+                (navigation as any).navigate('Débitos');
+              }}
+            >
+              <Text style={{ color: '#6b7280', textAlign: 'center', fontSize: 12 }}>Mais opções...</Text>
+            </TouchableOpacity>
           </View>
         </View>
       )}

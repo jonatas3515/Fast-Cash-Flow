@@ -3,12 +3,16 @@ import { createDrawerNavigator } from '@react-navigation/drawer';
 import DayScreen from '../screens/DayScreen';
 import RangeScreen from '../screens/RangeScreen';
 import SettingsScreen from '../screens/SettingsScreen';
+import NotificationSettingsScreen from '../screens/NotificationSettingsScreen';
 import DebtsScreen from '../screens/DebtsScreen';
 import OrdersScreen from '../screens/OrdersScreen';
 import DashboardScreen from '../screens/DashboardScreen';
 import RecurringExpensesScreen from '../screens/RecurringExpensesScreen';
 import InstructionsScreen from '../screens/InstructionsScreen';
 import GoalsHistoryScreen from '../screens/GoalsHistoryScreen';
+import BackupScreen from '../screens/BackupScreen';
+import CustomizeDashboardScreen from '../screens/CustomizeDashboardScreen';
+import CategoriesScreen from '../screens/CategoriesScreen';
 import CustomDrawerContent from './CustomDrawerContent';
 import { colors } from '../theme';
 import { View, Text, Image, TouchableOpacity, Platform, useWindowDimensions } from 'react-native';
@@ -169,6 +173,34 @@ export default function Tabs() {
         component={SettingsScreen}
         options={{
           header: () => <CustomHeader title="Configurações" />,
+        }}
+      />
+      <Drawer.Screen 
+        name="Notificações" 
+        component={NotificationSettingsScreen}
+        options={{
+          header: () => <CustomHeader title="Notificações" />,
+        }}
+      />
+      <Drawer.Screen 
+        name="Backup" 
+        component={BackupScreen}
+        options={{
+          header: () => <CustomHeader title="Backup de Dados" />,
+        }}
+      />
+      <Drawer.Screen 
+        name="PersonalizarDashboard" 
+        component={CustomizeDashboardScreen}
+        options={{
+          header: () => <CustomHeader title="Personalizar Dashboard" />,
+        }}
+      />
+      <Drawer.Screen 
+        name="Categorias" 
+        component={CategoriesScreen}
+        options={{
+          header: () => <CustomHeader title="Categorias" />,
         }}
       />
     </Drawer.Navigator>
