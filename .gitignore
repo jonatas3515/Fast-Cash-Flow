@@ -40,3 +40,9 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Local Netlify folder
+.netlify
+.vercel/
+.agent/
+supabase/.temp/

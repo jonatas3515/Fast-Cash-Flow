@@ -79,8 +79,35 @@ export async function deleteRecurringExpense(id: string): Promise<void> {
 }
 
 export function getNextOccurrence(rec: RecurringExpense, fromDate: Date): Date | null {
-  const start = new Date(rec.start_date);
-  const end = rec.end_date ? new Date(rec.end_date) : null;
+  const start = new Date(`${rec.start_date}T12:00:00`);
+  const end = rec.end_date ? new Date(`${rec.end_date}T12:00:00`) : null;
+
+  const clampDayInMonth = (year: number, monthIndex: number, day: number) => {
+    const lastDay = new Date(year, monthIndex + 1, 0).getDate();
+    return Math.min(day, lastDay);
+  };
+
+  // Regra especial para mensal: queremos o vencimento do mês corrente (mesmo se já passou)
+  // para suportar os estados Pagar/Vencido/Pago dentro do mês.
+  if (rec.recurrence_type === 'monthly') {
+    const dueDay = start.getDate();
+    const from = new Date(fromDate);
+    from.setHours(12, 0, 0, 0);
+
+    const startYM = start.getFullYear() * 12 + start.getMonth();
+    const fromYM = from.getFullYear() * 12 + from.getMonth();
+
+    let candidate: Date;
+    if (fromYM <= startYM) {
+      candidate = new Date(start);
+    } else {
+      const day = clampDayInMonth(from.getFullYear(), from.getMonth(), dueDay);
+      candidate = new Date(from.getFullYear(), from.getMonth(), day, 12, 0, 0, 0);
+    }
+
+    if (end && candidate > end) return null;
+    return candidate;
+  }
 
   let current = new Date(start);
   if (fromDate > current) {
@@ -89,11 +116,7 @@ export function getNextOccurrence(rec: RecurringExpense, fromDate: Date): Date |
       : rec.recurrence_type === 'custom' && rec.interval_days ? rec.interval_days
       : null;
 
-    if (rec.recurrence_type === 'monthly') {
-      while (current < fromDate) {
-        current.setMonth(current.getMonth() + 1);
-      }
-    } else if (rec.recurrence_type === 'annual') {
+    if (rec.recurrence_type === 'annual') {
       while (current < fromDate) {
         current.setFullYear(current.getFullYear() + 1);
       }

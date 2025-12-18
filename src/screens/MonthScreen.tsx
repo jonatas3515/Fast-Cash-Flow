@@ -15,8 +15,11 @@ import { Alert, TextInput } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 import { useSettings } from '../settings/SettingsProvider';
 import FilterHeader, { normalizeText } from '../components/FilterHeader';
+import MonthSummaryCard from '../components/MonthSummaryCard';
+import { useNavigation } from '@react-navigation/native';
 
 export default function MonthScreen() {
+  const navigation = useNavigation<any>();
   const start = getCurrentYearMonth();
   const [ym, setYm] = React.useState(start);
   const { theme } = useThemeCtx();
@@ -129,6 +132,9 @@ export default function MonthScreen() {
         <Text style={[styles.title, { color: theme.text }]}>{(new Date(ym.year, ym.month - 1, 1)).toLocaleString(lang === 'pt' ? 'pt-BR' : 'en-US', { month: 'long' })} / {ym.year}</Text>
         <TouchableOpacity onPress={goNext}><Text style={[styles.nav, { color: theme.text }]}>{t('next')}</Text></TouchableOpacity>
       </View>
+
+      {/* Card de Resumo Mensal com projeção de meta */}
+      <MonthSummaryCard year={ym.year} month={ym.month} navigation={navigation} />
 
       {/* Banner de Alerta */}
       {alert && (

@@ -18,7 +18,7 @@ import {
 } from '../utils/dashboardWidgets';
 
 export default function CustomizeDashboardScreen({ navigation }: any) {
-  const { theme } = useThemeCtx();
+  const { theme, mode } = useThemeCtx();
   const [widgets, setWidgets] = useState<DashboardWidget[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasChanges, setHasChanges] = useState(false);
@@ -108,12 +108,12 @@ export default function CustomizeDashboardScreen({ navigation }: any) {
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <ScrollView style={styles.scrollView}>
-        <View style={styles.header}>
-          <Ionicons name="construct-outline" size={40} color={theme.primary} />
-          <Text style={[styles.title, { color: theme.text }]}>
+        <View style={[styles.header, { alignItems: 'center' }]}>
+          <Ionicons name="construct-outline" size={40} color={mode === 'dark' ? theme.primary : theme.negative} />
+          <Text style={[styles.title, { color: mode === 'dark' ? theme.primary : theme.negative, textAlign: 'center' }]}>
             Personalize seu Dashboard
           </Text>
-          <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
+          <Text style={[styles.subtitle, { color: theme.textSecondary, textAlign: 'center' }]}>
             Escolha quais informações você quer ver e organize na ordem que preferir
           </Text>
         </View>
@@ -227,8 +227,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   title: {
-    fontSize: 22,
-    fontWeight: 'bold',
+    fontSize: 24,
+    fontWeight: '800',
     marginTop: 12,
     textAlign: 'center',
   },

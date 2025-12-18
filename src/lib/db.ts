@@ -17,15 +17,18 @@ export const getDb = (): DB => {
     // Minimal in-memory DB interface for web preview
     const rows: any[] = [];
     const getCompanyId = (): string | null => {
-      try { return typeof window !== 'undefined' ? window.sessionStorage.getItem('auth_company_id') : null; } catch { return null; }
+      try { return typeof window !== 'undefined' ? window.localStorage.getItem('auth_company_id') : null; } catch { return null; }
     };
     _db = {
-      execAsync: async () => {},
+      execAsync: async () => { },
       runAsync: async (sql: string, ...args: any[]) => {
         // Handle INSERT and UPDATE patterns used by repository
         if (sql.startsWith('INSERT INTO transactions_local')) {
-          const [id, type, date, time, datetime, description, category, amount_cents, source_device, version, updated_at] = args;
-          rows.push({ id, type, date, time, datetime, description, category, amount_cents, source_device, version, updated_at, deleted_at: null, dirty: 1, company_id: getCompanyId() });
+          // Ordem dos args: id, type, date, time, datetime, description, category, clientname, expensetype, amount_cents, source_device, version, updated_at, deleted_at, company_id
+          // Nota: dirty é literal "1" no SQL, não é um placeholder
+          const [id, type, date, time, datetime, description, category, clientname, expensetype, amount_cents, source_device, version, updated_at, deleted_at, company_id] = args;
+          const finalCompanyId = company_id || getCompanyId();
+          rows.push({ id, type, date, time, datetime, description, category, clientname, expensetype: expensetype || 'operational', amount_cents, source_device, version, updated_at, deleted_at: deleted_at || null, dirty: 1, company_id: finalCompanyId });
           return;
         }
         if (sql.startsWith('UPDATE transactions_local SET')) {
@@ -46,14 +49,14 @@ export const getDb = (): DB => {
         const cid = getCompanyId();
         if (sql.startsWith('SELECT * FROM transactions_local WHERE date = ?')) {
           const date = args[0];
-          return rows.filter(r => r.company_id === cid && r.date === date && !r.deleted_at).sort((a,b) => (b.datetime as string).localeCompare(a.datetime)) as T[];
+          return rows.filter(r => r.company_id === cid && r.date === date && !r.deleted_at).sort((a, b) => (b.datetime as string).localeCompare(a.datetime)) as T[];
         }
         if (sql.includes('WHERE date >= ? AND date <= ?')) {
           const start = args[0] as string;
           const end = args[1] as string;
           return rows
             .filter(r => r.company_id === cid && !r.deleted_at && r.date >= start && r.date <= end)
-            .sort((a,b) => (a.datetime as string).localeCompare(b.datetime as string)) as T[];
+            .sort((a, b) => (a.datetime as string).localeCompare(b.datetime as string)) as T[];
         }
         return [] as T[];
       },
@@ -95,6 +98,8 @@ export const migrate = async () => {
       datetime TEXT NOT NULL,
       description TEXT,
       category TEXT,
+      clientname TEXT,
+      expensetype TEXT DEFAULT 'operational',
       amount_cents INTEGER NOT NULL,
       source_device TEXT,
       version INTEGER NOT NULL DEFAULT 1,
@@ -116,12 +121,26 @@ export const migrate = async () => {
   try {
     // Backfill company_id for legacy rows
     let companyId: string | null = null;
-    try { companyId = typeof window !== 'undefined' ? window.sessionStorage.getItem('auth_company_id') : null; } catch {}
+    try { companyId = typeof window !== 'undefined' ? window.localStorage.getItem('auth_company_id') : null; } catch { }
     if (!companyId) {
-      try { const SecureStore = require('expo-secure-store') as typeof import('expo-secure-store'); companyId = await SecureStore.getItemAsync('auth_company_id'); } catch {}
+      try { const SecureStore = require('expo-secure-store') as typeof import('expo-secure-store'); companyId = await SecureStore.getItemAsync('auth_company_id'); } catch { }
     }
     if (companyId) {
       await db.runAsync("UPDATE transactions_local SET company_id = ? WHERE company_id IS NULL", companyId);
     }
-  } catch {}
+  } catch { }
+
+  // Migração: adicionar coluna clientname se não existir
+  try {
+    await db.execAsync(`ALTER TABLE transactions_local ADD COLUMN clientname TEXT;`);
+  } catch {
+    // Coluna já existe, ignorar erro
+  }
+
+  // Migração: adicionar coluna expensetype se não existir
+  try {
+    await db.execAsync(`ALTER TABLE transactions_local ADD COLUMN expensetype TEXT DEFAULT 'operational';`);
+  } catch {
+    // Coluna já existe, ignorar erro
+  }
 };

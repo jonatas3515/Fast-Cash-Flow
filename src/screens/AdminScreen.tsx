@@ -9,13 +9,14 @@ import { useSettings } from '../settings/SettingsProvider';
 import * as ImagePicker from 'expo-image-picker';
 import { capitalizeCompanyName } from '../utils/string';
 import DebtsScreen from './DebtsScreen';
+import LandingSettingsScreen from './admin/LandingSettingsScreen';
 
 export default function AdminScreen() {
   const { theme, mode, setMode } = useThemeCtx();
   const qc = useQueryClient();
   const { settings, setLogoUrl } = useSettings();
   const [logo, setLogo] = React.useState(settings.logoUrl || '');
-  const [tab, setTab] = React.useState<'empresas' | 'config' | 'debts'>('empresas');
+  const [tab, setTab] = React.useState<'empresas' | 'config' | 'debts' | 'landing'>('empresas');
   const [online, setOnline] = React.useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [syncing, setSyncing] = React.useState(false);
   const [pendingCount, setPendingCount] = React.useState(0);
@@ -24,7 +25,7 @@ export default function AdminScreen() {
   const [companyReq, setCompanyReq] = React.useState<any>(null);
   const [newCompanyPass, setNewCompanyPass] = React.useState('');
   const [selectCompanyOpen, setSelectCompanyOpen] = React.useState(false);
-  const [companyForConfig, setCompanyForConfig] = React.useState<{ id: string|null; name: string } | null>(null);
+  const [companyForConfig, setCompanyForConfig] = React.useState<{ id: string | null; name: string } | null>(null);
   const companiesQ = useQuery({
     queryKey: ['companies'],
     queryFn: async () => {
@@ -39,7 +40,7 @@ export default function AdminScreen() {
       try {
         await supabase.from('companies').upsert({ name: 'fastsavorys' }, { onConflict: 'name' } as any);
         await qc.invalidateQueries({ queryKey: ['companies'] });
-      } catch {}
+      } catch { }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -49,7 +50,7 @@ export default function AdminScreen() {
     try {
       window.addEventListener('online', updateOnline);
       window.addEventListener('offline', updateOnline);
-    } catch {}
+    } catch { }
     const id = setInterval(() => {
       try {
         const raw = (typeof window !== 'undefined' && window.localStorage) ? window.localStorage.getItem('sync_outbox') : null;
@@ -61,7 +62,7 @@ export default function AdminScreen() {
         }
       } catch { setPendingCount(0); }
     }, 2000);
-    return () => { try { window.removeEventListener('online', updateOnline); window.removeEventListener('offline', updateOnline); } catch {}; clearInterval(id); };
+    return () => { try { window.removeEventListener('online', updateOnline); window.removeEventListener('offline', updateOnline); } catch { }; clearInterval(id); };
   }, []);
   const requestsQ = useQuery({
     queryKey: ['company_requests'],
@@ -92,7 +93,7 @@ export default function AdminScreen() {
       if (memErr) throw memErr;
 
       // 4) Update request with approval meta
-      const trial_until = payload.trial ? new Date(Date.now() + 30*24*60*60*1000).toISOString().slice(0,10) : null;
+      const trial_until = payload.trial ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10) : null;
       const { error } = await supabase.from('company_requests').update({
         approved: true,
         approved_at: new Date().toISOString(),
@@ -105,10 +106,12 @@ export default function AdminScreen() {
       }).eq('id', payload.id);
       if (error) throw error;
     },
-    onSuccess: async () => { await Promise.all([
-      qc.invalidateQueries({ queryKey: ['company_requests'] }),
-      qc.invalidateQueries({ queryKey: ['companies'] }),
-    ]); },
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['company_requests'] }),
+        qc.invalidateQueries({ queryKey: ['companies'] }),
+      ]);
+    },
   });
   const rejectMut = useMutation({
     mutationFn: async (id: string) => {
@@ -139,11 +142,11 @@ export default function AdminScreen() {
 
   // build merged companies list (DB companies + approved requests names)
   const mergedCompanies = React.useMemo(() => {
-    const list: { id: string|null; name: string }[] = [];
+    const list: { id: string | null; name: string }[] = [];
     const db = (companiesQ.data || []);
     db.forEach(c => list.push({ id: c.id, name: c.name }));
     (requestsQ.data || []).filter(r => r.approved).forEach(r => {
-      const exists = list.some(x => x.name.toLowerCase() === (r.company_name||'').toLowerCase());
+      const exists = list.some(x => x.name.toLowerCase() === (r.company_name || '').toLowerCase());
       if (!exists) list.push({ id: r.approved_company_id || null, name: r.company_name });
     });
     // Ensure fastsavorys always present
@@ -158,26 +161,26 @@ export default function AdminScreen() {
   // helper: find request by company
   const reqByCompany = React.useCallback((name: string) => {
     const reqs = (requestsQ.data || []);
-    const low = (name||'').toLowerCase();
-    return reqs.find(r => (r.company_name||'').toLowerCase() === low) || null;
+    const low = (name || '').toLowerCase();
+    return reqs.find(r => (r.company_name || '').toLowerCase() === low) || null;
   }, [requestsQ.data]);
   const planLabel = (name: string) => {
-    if ((name||'').toLowerCase() === 'fastsavorys') return 'Plano: Vitalício';
+    if ((name || '').toLowerCase() === 'fastsavorys') return 'Plano: Vitalício';
     const req = reqByCompany(name);
     if (req && req.approved) return 'Plano: Mensal';
     return 'Plano: -';
   };
   const trialInfo = (name: string) => {
-    if ((name||'').toLowerCase() === 'fastsavorys') return '';
+    if ((name || '').toLowerCase() === 'fastsavorys') return '';
     const req = reqByCompany(name);
     if (!req || !req.trial_until) return '';
     try {
-      const today = new Date().toISOString().slice(0,10);
+      const today = new Date().toISOString().slice(0, 10);
       const d1 = new Date(today).getTime();
       const d2 = new Date(req.trial_until).getTime();
-      const diff = Math.ceil((d2 - d1) / (1000*60*60*24));
+      const diff = Math.ceil((d2 - d1) / (1000 * 60 * 60 * 24));
       const days = Math.max(0, diff);
-      return `Teste Grátis: ${days} dia${days===1?'':'s'} restantes`;
+      return `Teste Grátis: ${days} dia${days === 1 ? '' : 's'} restantes`;
     } catch { return ''; }
   };
 
@@ -186,7 +189,7 @@ export default function AdminScreen() {
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
           <Image
-            source={settings.logoUrl ? { uri: settings.logoUrl } : (mode === 'dark' ? require('../../Logo White.png') : require('../../Logo Black.png'))}
+            source={settings.logoUrl ? { uri: settings.logoUrl } : (mode === 'dark' ? require('../../assets/landing/Logo White.png') : require('../../assets/landing/Logo Black.png'))}
             resizeMode="contain"
             style={{ width: 60, height: 34 }}
           />
@@ -198,11 +201,11 @@ export default function AdminScreen() {
           <Text style={{ color: theme.text, marginLeft: 12 }}>Bem-vindo(a), Jonatas</Text>
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <View style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: online ? '#14532D' : '#7F1D1D' }}>
+          <View style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: online ? theme.positive : theme.negative }}>
             <Text style={{ color: '#fff', fontWeight: '700' }}>{online ? 'Online' : 'Offline'}</Text>
           </View>
-          <View style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: '#1F2937' }}>
-            <Text style={{ color: '#fff' }}>{syncing ? 'Sincronizando…' : `Pendentes: ${pendingCount}`}</Text>
+          <View style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: theme.card }}>
+            <Text style={{ color: theme.text }}>{syncing ? 'Sincronizando…' : `Pendentes: ${pendingCount}`}</Text>
           </View>
           <TouchableOpacity onPress={() => quickSync()} style={{ paddingHorizontal: 8, paddingVertical: 6, marginRight: 4 }}>
             <Text style={{ color: '#16A34A', fontSize: 20, lineHeight: 20 }}>🔄</Text>
@@ -212,16 +215,57 @@ export default function AdminScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             onPress={async () => {
+              console.log('[🚪 LOGOUT] Saindo...');
               try {
+                // Limpar storage COMPLETAMENTE primeiro
                 if (Platform.OS === 'web') {
-                  try { window.sessionStorage.removeItem('auth_ok'); window.sessionStorage.removeItem('auth_role'); } catch {}
+                  try {
+                    // Limpar TODOS os storages
+                    window.sessionStorage.clear(); // Session storage
+                    window.localStorage.clear(); // Local storage
+
+                    // Limpar cookies se existirem
+                    document.cookie.split(";").forEach(cookie => {
+                      const eqPos = cookie.indexOf("=");
+                      const name = eqPos > -1 ? cookie.substr(0, eqPos) : cookie;
+                      document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/";
+                      document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=" + window.location.hostname;
+                    });
+
+                    // Limpar IndexedDB se possível
+                    if (window.indexedDB) {
+                      const databases = await indexedDB.databases();
+                      databases.forEach(db => {
+                        if (db.name) {
+                          indexedDB.deleteDatabase(db.name);
+                        }
+                      });
+                    }
+
+                    console.log('[✅ LOGOUT] Storage web limpo completamente');
+                  } catch (e) {
+                    console.warn('[⚠️ LOGOUT] Erro ao limpar storage web:', e);
+                  }
                 } else {
                   await SecureStore.deleteItemAsync('auth_ok');
                   await SecureStore.deleteItemAsync('auth_role');
+                  await SecureStore.deleteItemAsync('auth_company_id');
                 }
+
+                // Fazer signOut do Supabase
                 await supabase.auth.signOut();
-              } finally {
-                if (Platform.OS === 'web') { try { window.location.reload(); } catch {} }
+                console.log('[✅ LOGOUT] SignOut concluído');
+
+                // Forçar reload COMPLETO na web
+                if (Platform.OS === 'web') {
+                  window.location.replace(window.location.origin);
+                }
+              } catch (error) {
+                console.error('[❌ LOGOUT] Erro:', error);
+                // Mesmo com erro, forçar reload na web
+                if (Platform.OS === 'web') {
+                  window.location.replace(window.location.origin);
+                }
               }
             }}
             style={{ backgroundColor: '#D90429', paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8, marginRight: 10 }}>
@@ -237,8 +281,11 @@ export default function AdminScreen() {
         <TouchableOpacity onPress={() => setTab('config')} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, backgroundColor: '#FFC300' }}>
           <Text style={{ color: '#111', fontWeight: '800' }}>Config</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => setTab('debts')} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, backgroundColor: '#FFC300' }}>
-          <Text style={{ color: '#111', fontWeight: '800' }}>Débitos</Text>
+        <TouchableOpacity onPress={() => setTab('debts')} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, backgroundColor: tab === 'debts' ? '#16A34A' : '#FFC300' }}>
+          <Text style={{ color: tab === 'debts' ? '#fff' : '#111', fontWeight: '800' }}>Débitos</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setTab('landing')} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, backgroundColor: tab === 'landing' ? '#16A34A' : '#FFC300' }}>
+          <Text style={{ color: tab === 'landing' ? '#fff' : '#111', fontWeight: '800' }}>🌐 Landing</Text>
         </TouchableOpacity>
       </View>
 
@@ -250,11 +297,11 @@ export default function AdminScreen() {
             keyExtractor={(i, idx) => i.id || `${i.name}-${idx}`}
             ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
             renderItem={({ item }) => (
-              <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#eee', borderRadius: 8, padding: 12 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: theme.border, borderRadius: 8, padding: 12, backgroundColor: theme.card }}>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: theme.text, fontWeight: '600' }}>{capitalizeCompanyName(item.name)}</Text>
-                  <Text style={{ color: theme.text }}>{planLabel(item.name)}</Text>
-                  {trialInfo(item.name) ? (<Text style={{ color: '#888' }}>{trialInfo(item.name)}</Text>) : null}
+                  <Text style={{ color: theme.textSecondary }}>{planLabel(item.name)}</Text>
+                  {trialInfo(item.name) ? (<Text style={{ color: theme.textSecondary }}>{trialInfo(item.name)}</Text>) : null}
                 </View>
                 <TouchableOpacity style={{ backgroundColor: '#111', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, marginRight: 8 }} onPress={async () => {
                   setSelectedCompany(item as any);
@@ -281,31 +328,31 @@ export default function AdminScreen() {
           <Text style={{ color: theme.text, fontSize: 16, fontWeight: '700', marginTop: 12 }}>Solicitações</Text>
           {(() => {
             const reqs = requestsQ.data || [];
-            if (reqs.length === 0) return <Text style={{ color: '#888' }}>Nenhuma solicitação pendente.</Text>;
+            if (reqs.length === 0) return <Text style={{ color: theme.textSecondary }}>Nenhuma solicitação pendente.</Text>;
             return (
               <FlatList
                 data={reqs}
                 keyExtractor={(i) => i.id}
                 ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
                 renderItem={({ item }) => (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#eee', borderRadius: 8, padding: 12 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: theme.border, borderRadius: 8, padding: 12, backgroundColor: theme.card }}>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: theme.text, fontWeight: '600' }}>{capitalizeCompanyName(item.company_name)} — {item.owner_name}</Text>
-                      <Text style={{ color: '#888' }}>{item.phone} • {item.cnpj}</Text>
-                      <Text style={{ color: '#888' }}>{item.address}</Text>
-                      <Text style={{ color: theme.text }}>{planLabel(item.company_name)}</Text>
-                      {((item.company_name||'').toLowerCase() !== 'fastsavorys') && item.trial_until ? (
-                        <Text style={{ color: '#888' }}>{trialInfo(item.company_name)}</Text>
+                      <Text style={{ color: theme.textSecondary }}>{item.phone} • {item.cnpj}</Text>
+                      <Text style={{ color: theme.textSecondary }}>{item.address}</Text>
+                      <Text style={{ color: theme.textSecondary }}>{planLabel(item.company_name)}</Text>
+                      {((item.company_name || '').toLowerCase() !== 'fastsavorys') && item.trial_until ? (
+                        <Text style={{ color: theme.textSecondary }}>{trialInfo(item.company_name)}</Text>
                       ) : null}
                     </View>
                     {!item.approved ? (
-                      <TouchableOpacity onPress={() => openApprove(item.id, (item.company_name||'').toLowerCase().replace(/\s+/g,'').slice(0,16), item.company_name, item.phone)} style={{ backgroundColor: '#16A34A', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, marginRight: 8 }}>
+                      <TouchableOpacity onPress={() => openApprove(item.id, (item.company_name || '').toLowerCase().replace(/\s+/g, '').slice(0, 16), item.company_name, item.phone)} style={{ backgroundColor: '#16A34A', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, marginRight: 8 }}>
                         <Text style={{ color: '#fff', fontWeight: '700' }}>Aprovar e enviar WhatsApp</Text>
                       </TouchableOpacity>
                     ) : (
-                      ((item.company_name||'').toLowerCase() !== 'fastsavorys') ? (
+                      ((item.company_name || '').toLowerCase() !== 'fastsavorys') ? (
                         <TouchableOpacity onPress={async () => {
-                          const trial_until = new Date(Date.now() + 30*24*60*60*1000).toISOString().slice(0,10);
+                          const trial_until = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
                           await supabase.from('company_requests').update({ trial_until }).eq('id', item.id);
                           await requestsQ.refetch();
                         }} style={{ backgroundColor: '#16A34A', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, marginRight: 8 }}>
@@ -332,21 +379,21 @@ export default function AdminScreen() {
             <Text style={{ color: '#111', fontWeight: '800' }}>Trocar empresa</Text>
           </TouchableOpacity>
           <Text style={{ color: theme.text }}>Alterar logo do app</Text>
-          <TextInput 
-            value={logo} 
-            onChangeText={(v) => { setLogo(v); setLogoUrl(v || null); }} 
-            placeholder="URL da logo (https://...)" 
-            placeholderTextColor={theme.inputPlaceholder || "#999"} 
-            style={{ 
-              borderWidth: 1, 
-              borderColor: theme.inputBorder || '#555', 
-              borderRadius: 8, 
-              padding: 12, 
-              color: theme.text, 
-              backgroundColor: theme.input 
-            }} 
+          <TextInput
+            value={logo}
+            onChangeText={(v) => { setLogo(v); setLogoUrl(v || null); }}
+            placeholder="URL da logo (https://...)"
+            placeholderTextColor={theme.inputPlaceholder || "#999"}
+            style={{
+              borderWidth: 1,
+              borderColor: theme.inputBorder || '#555',
+              borderRadius: 8,
+              padding: 12,
+              color: theme.text,
+              backgroundColor: theme.input
+            }}
           />
-          <View style={{ flexDirection:'row', gap: 8 }}>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
             <TouchableOpacity style={{ backgroundColor: '#FFC300', paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8 }} onPress={async () => { await setLogoUrl(logo || null); }}>
               <Text style={{ color: '#111', fontWeight: '800' }}>Salvar</Text>
             </TouchableOpacity>
@@ -365,83 +412,87 @@ export default function AdminScreen() {
 
           <View style={{ height: 12 }} />
           <Text style={{ color: theme.text, fontSize: 16, fontWeight: '700' }}>Alterar senha</Text>
-          <TextInput 
-            value={newCompanyPass} 
-            onChangeText={setNewCompanyPass} 
-            placeholder="Nova senha" 
-            placeholderTextColor={theme.inputPlaceholder || "#999"} 
-            secureTextEntry 
-            style={{ 
-              borderWidth: 1, 
-              borderColor: theme.inputBorder || '#555', 
-              borderRadius: 8, 
-              padding: 12, 
-              color: theme.text, 
-              backgroundColor: theme.input 
-            }} 
+          <TextInput
+            value={newCompanyPass}
+            onChangeText={setNewCompanyPass}
+            placeholder="Nova senha"
+            placeholderTextColor={theme.inputPlaceholder || "#999"}
+            secureTextEntry
+            style={{
+              borderWidth: 1,
+              borderColor: theme.inputBorder || '#555',
+              borderRadius: 8,
+              padding: 12,
+              color: theme.text,
+              backgroundColor: theme.input
+            }}
           />
           <TouchableOpacity onPress={async () => {
             if (!companyForConfig) return;
             // Regra: 1 alteração a cada 30 dias por empresa
             let comp: any = null;
             try {
-              const { data } = await supabase.from('companies').select('id,last_password_change').eq('name',companyForConfig.name).maybeSingle();
+              const { data } = await supabase.from('companies').select('id,last_password_change').eq('name', companyForConfig.name).maybeSingle();
               comp = data;
-            } catch {}
+            } catch { }
             const now = new Date();
             const last = comp?.last_password_change ? new Date(comp.last_password_change) : null;
-            if (last && (now.getTime() - last.getTime()) < 30*24*60*60*1000) {
+            if (last && (now.getTime() - last.getTime()) < 30 * 24 * 60 * 60 * 1000) {
               alert('Você só pode alterar a senha a cada 30 dias.');
               return;
             }
-            try { await supabase.from('companies').update({ last_password_change: now.toISOString() }).eq('name',companyForConfig.name); } catch {}
-            try { await supabase.from('company_requests').update({ approved_temp_password: newCompanyPass }).eq('company_name',companyForConfig.name); } catch {}
+            try { await supabase.from('companies').update({ last_password_change: now.toISOString() }).eq('name', companyForConfig.name); } catch { }
+            try { await supabase.from('company_requests').update({ approved_temp_password: newCompanyPass }).eq('company_name', companyForConfig.name); } catch { }
             setNewCompanyPass('');
             alert('Senha alterada com sucesso.');
           }} style={{ backgroundColor: '#16A34A', paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, alignSelf: 'flex-start' }}>
             <Text style={{ color: '#fff', fontWeight: '800' }}>Salvar nova senha</Text>
           </TouchableOpacity>
-          <Text style={{ color: '#888' }}>Regra: apenas 1 alteração a cada 30 dias.</Text>
+          <Text style={{ color: theme.textSecondary }}>Regra: apenas 1 alteração a cada 30 dias.</Text>
         </View>
+      )}
+
+      {tab === 'landing' && (
+        <LandingSettingsScreen />
       )}
 
 
       <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={() => setModalVisible(false)}>
-        <View style={{ flex:1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems:'center', justifyContent:'center' }}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center' }}>
           <View style={{ width: 480, maxWidth: '90%', backgroundColor: theme.card, borderRadius: 12, padding: 16, gap: 10 }}>
             <Text style={{ color: theme.text, fontWeight: '800', fontSize: 16 }}>Aprovar solicitação</Text>
-            <TextInput 
-              value={username} 
-              onChangeText={setUsername} 
-              placeholder="Nome de usuário" 
-              placeholderTextColor={theme.inputPlaceholder || "#999"} 
-              autoCapitalize="none" 
-              style={{ 
-                borderWidth: 1, 
-                borderColor: theme.inputBorder || '#555', 
-                borderRadius: 8, 
-                padding: 12, 
-                color: theme.text, 
-                backgroundColor: theme.input 
-              }} 
+            <TextInput
+              value={username}
+              onChangeText={setUsername}
+              placeholder="Nome de usuário"
+              placeholderTextColor={theme.inputPlaceholder || "#999"}
+              autoCapitalize="none"
+              style={{
+                borderWidth: 1,
+                borderColor: theme.inputBorder || '#555',
+                borderRadius: 8,
+                padding: 12,
+                color: theme.text,
+                backgroundColor: theme.input
+              }}
             />
-            <TextInput 
-              value={tempPass} 
-              onChangeText={setTempPass} 
-              placeholder="Senha provisória" 
-              placeholderTextColor={theme.inputPlaceholder || "#999"} 
-              autoCapitalize="none" 
-              style={{ 
-                borderWidth: 1, 
-                borderColor: theme.inputBorder || '#555', 
-                borderRadius: 8, 
-                padding: 12, 
-                color: theme.text, 
-                backgroundColor: theme.input 
-              }} 
+            <TextInput
+              value={tempPass}
+              onChangeText={setTempPass}
+              placeholder="Senha provisória"
+              placeholderTextColor={theme.inputPlaceholder || "#999"}
+              autoCapitalize="none"
+              style={{
+                borderWidth: 1,
+                borderColor: theme.inputBorder || '#555',
+                borderRadius: 8,
+                padding: 12,
+                color: theme.text,
+                backgroundColor: theme.input
+              }}
             />
-            <View style={{ flexDirection:'row', alignItems:'center', justifyContent:'space-between' }}>
-              {(selectedCompanyName||'').toLowerCase() !== 'fastsavorys' ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              {(selectedCompanyName || '').toLowerCase() !== 'fastsavorys' ? (
                 <>
                   <Text style={{ color: theme.text }}>Teste Grátis de 30 dias</Text>
                   <Switch value={trial} onValueChange={setTrial} />
@@ -450,11 +501,11 @@ export default function AdminScreen() {
                 <Text style={{ color: theme.text }}>Plano: Vitalício</Text>
               )}
             </View>
-            <View style={{ flexDirection:'row', alignItems:'center', justifyContent:'space-between' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <Text style={{ color: theme.text }}>Bloquear por inadimplência</Text>
               <Switch value={blocked} onValueChange={setBlocked} />
             </View>
-            <View style={{ flexDirection:'row', justifyContent:'flex-end', gap: 8 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8 }}>
               <TouchableOpacity onPress={() => setModalVisible(false)} style={{ paddingVertical: 10, paddingHorizontal: 12 }}>
                 <Text style={{ color: theme.text, fontWeight: '700' }}>Cancelar</Text>
               </TouchableOpacity>
@@ -464,7 +515,7 @@ export default function AdminScreen() {
                 setModalVisible(false);
                 // Build WhatsApp message
                 const msg = `Olá! Sua empresa ${selectedCompanyName} foi aprovada.\nLogin: ${username}\nSenha provisória: ${tempPass}\nTeste Grátis: 30 dias. Acesse o sistema e altere a senha no primeiro acesso.`;
-                const phone = (selectedPhone || '').replace(/\D/g,'');
+                const phone = (selectedPhone || '').replace(/\D/g, '');
                 try {
                   if (Platform.OS === 'web') {
                     const url = `https://wa.me/55${phone}?text=${encodeURIComponent(msg)}`;
@@ -473,7 +524,7 @@ export default function AdminScreen() {
                     const url = `whatsapp://send?phone=55${phone}&text=${encodeURIComponent(msg)}`;
                     Linking.openURL(url);
                   }
-                } catch {}
+                } catch { }
               }} style={{ backgroundColor: '#16A34A', paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8 }}>
                 <Text style={{ color: '#fff', fontWeight: '700' }}>Aprovar e enviar WhatsApp</Text>
               </TouchableOpacity>
@@ -483,7 +534,7 @@ export default function AdminScreen() {
       </Modal>
 
       <Modal visible={selectCompanyOpen} transparent animationType="fade" onRequestClose={() => setSelectCompanyOpen(false)}>
-        <View style={{ flex:1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems:'center', justifyContent:'center' }}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center' }}>
           <View style={{ width: 520, maxWidth: '92%', backgroundColor: theme.card, borderRadius: 12, padding: 16, gap: 10 }}>
             <Text style={{ color: theme.text, fontWeight: '800', fontSize: 16 }}>Escolher empresa</Text>
             <FlatList
@@ -491,12 +542,12 @@ export default function AdminScreen() {
               keyExtractor={(i, idx) => i.id || `${i.name}-${idx}`}
               ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
               renderItem={({ item }) => (
-                <TouchableOpacity onPress={() => { setCompanyForConfig(item); setSelectCompanyOpen(false); }} style={{ padding: 12, borderWidth: 1, borderColor: '#444', borderRadius: 8 }}>
+                <TouchableOpacity onPress={() => { setCompanyForConfig(item); setSelectCompanyOpen(false); }} style={{ padding: 12, borderWidth: 1, borderColor: theme.border, borderRadius: 8, backgroundColor: theme.cardSecondary }}>
                   <Text style={{ color: theme.text }}>{capitalizeCompanyName(item.name)}</Text>
                 </TouchableOpacity>
               )}
             />
-            <View style={{ flexDirection:'row', justifyContent:'flex-end' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
               <TouchableOpacity onPress={() => setSelectCompanyOpen(false)} style={{ paddingVertical: 8, paddingHorizontal: 12 }}>
                 <Text style={{ color: theme.text, fontWeight: '700' }}>Fechar</Text>
               </TouchableOpacity>
@@ -508,7 +559,7 @@ export default function AdminScreen() {
       {/* Config modal removed: replaced by Config tab above */}
 
       <Modal visible={companyOpen} transparent animationType="fade" onRequestClose={() => setCompanyOpen(false)}>
-        <View style={{ flex:1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems:'center', justifyContent:'center' }}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center' }}>
           <View style={{ width: 520, maxWidth: '92%', backgroundColor: theme.card, borderRadius: 12, padding: 16, gap: 10 }}>
             <Text style={{ color: theme.text, fontWeight: '800', fontSize: 16 }}>Empresa</Text>
             <Text style={{ color: theme.text }}>Nome: {capitalizeCompanyName(selectedCompany?.name || '')}</Text>
@@ -521,26 +572,26 @@ export default function AdminScreen() {
                 <Text style={{ color: theme.text }}>Trial até: {companyReq.trial_until || '-'}</Text>
               </>
             ) : (
-              <Text style={{ color: '#888' }}>Sem solicitação vinculada.</Text>
+              <Text style={{ color: theme.textSecondary }}>Sem solicitação vinculada.</Text>
             )}
             <View style={{ height: 8 }} />
             <Text style={{ color: theme.text, fontWeight: '700' }}>Redefinir senha provisória</Text>
-            <TextInput 
-              value={newCompanyPass} 
-              onChangeText={setNewCompanyPass} 
-              placeholder="Nova senha" 
-              placeholderTextColor={theme.inputPlaceholder || "#999"} 
-              secureTextEntry 
-              style={{ 
-                borderWidth: 1, 
-                borderColor: theme.inputBorder || '#555', 
-                borderRadius: 8, 
-                padding: 12, 
-                color: theme.text, 
-                backgroundColor: theme.input 
-              }} 
+            <TextInput
+              value={newCompanyPass}
+              onChangeText={setNewCompanyPass}
+              placeholder="Nova senha"
+              placeholderTextColor={theme.inputPlaceholder || "#999"}
+              secureTextEntry
+              style={{
+                borderWidth: 1,
+                borderColor: theme.inputBorder || '#555',
+                borderRadius: 8,
+                padding: 12,
+                color: theme.text,
+                backgroundColor: theme.input
+              }}
             />
-            <View style={{ flexDirection:'row', gap: 8, justifyContent:'flex-end' }}>
+            <View style={{ flexDirection: 'row', gap: 8, justifyContent: 'flex-end' }}>
               <TouchableOpacity onPress={() => setCompanyOpen(false)} style={{ paddingVertical: 10, paddingHorizontal: 12 }}>
                 <Text style={{ color: theme.text, fontWeight: '700' }}>Fechar</Text>
               </TouchableOpacity>

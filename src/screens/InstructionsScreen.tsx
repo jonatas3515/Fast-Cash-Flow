@@ -1,792 +1,952 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet, useWindowDimensions, Linking } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
+import React, { useState } from 'react';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  ScrollView,
+  StyleSheet,
+  useWindowDimensions,
+  Platform,
+  Modal,
+  TextInput,
+} from 'react-native';
 import { useThemeCtx } from '../theme/ThemeProvider';
 import ScreenTitle from '../components/ScreenTitle';
-import { useI18n } from '../i18n/I18nProvider';
 
-interface Topic {
+interface InstructionCard {
   id: string;
   icon: string;
   title: string;
-  content: string;
+  shortDescription?: string;
+  fullContent: string;
   color: string;
+}
+
+interface Section {
+  id: string;
+  title: string;
+  icon: string;
+  description: string;
+  cards: InstructionCard[];
 }
 
 export default function InstructionsScreen() {
   const { theme } = useThemeCtx();
-  const { t } = useI18n();
   const { width } = useWindowDimensions();
   const isDesktop = width >= 768;
+  const isTwoColumns = width >= 600;
+  const [selectedCard, setSelectedCard] = useState<InstructionCard | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
-  const [expandedId, setExpandedId] = React.useState<string | null>(null);
+  // Quick action cards for common topics
+  const quickActions = [
+    { id: 'qa1', icon: '🚀', title: 'Começar', filter: 'primeiros' },
+    { id: 'qa2', icon: '💰', title: 'Transações', filter: 'transação' },
+    { id: 'qa3', icon: '📊', title: 'Relatórios', filter: 'relatório' },
+    { id: 'qa4', icon: '🎯', title: 'Metas', filter: 'meta' },
+  ];
 
-  const topics: Topic[] = [
+  // Controle de seções colapsáveis
+  // Por padrão, deixamos o "Guia Rápido" (faq) expandido
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['faq']));
+
+  const toggleSection = (sectionId: string) => {
+    setExpandedSections(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(sectionId)) {
+        newSet.delete(sectionId);
+      } else {
+        newSet.add(sectionId);
+      }
+      return newSet;
+    });
+  };
+
+  // --- 1. AS 15 INSTRUÇÕES CLÁSSICAS ---
+  const classicCards: InstructionCard[] = [
     {
       id: 'dashboard',
       icon: '📊',
       title: 'Como interpretar o Dashboard',
-      content: `O Dashboard é sua visão geral do negócio. Aqui você encontra:
-
-**CARDS PRINCIPAIS (4 indicadores):**
-• Saldo Atual: Diferença entre entradas e saídas do mês atual. Verde = positivo, Vermelho = negativo.
-• Entradas: Total de dinheiro que entrou no mês (vendas, recebimentos, etc.).
-• Saídas: Total de despesas e custos do mês.
-• Saldo Projetado: Estimativa do saldo considerando despesas recorrentes futuras.
-
-**GRÁFICO DE FLUXO:**
-• Diário: Mostra entradas (verde) e saídas (vermelho) dia a dia do mês.
-• Semanal: Agrupa por semanas do mês.
-• Mensal: Mostra todos os meses do ano.
-• Toque nas barras para ver detalhes (valores exatos de cada dia/semana/mês).
-
-**META FINANCEIRA:**
-• Configure uma meta mensal de entradas (ex: R$ 10.000,00).
-• O card mostra o progresso em % e muda de cor conforme você avança:
-  - Vermelho: abaixo de 50%
-  - Laranja: 50% a 74%
-  - Azul: 75% a 99%
-  - Verde: 100% ou mais (meta atingida!)
-
-**ALERTAS AUTOMÁTICOS:**
-• Se seu saldo mensal estiver negativo, verá um alerta vermelho no topo.
-• Se suas dívidas ultrapassarem o limite configurado, verá um alerta laranja.
-
-**BOTÃO DE LANÇAMENTO RÁPIDO (⚡):**
-• Clique no botão flutuante no canto inferior direito para:
-  - Registrar entrada rápida (venda, recebimento)
-  - Registrar saída rápida (despesa, compra)
-  - Adicionar dívida simples (cartão, empréstimo)
-• Campos mínimos para agilizar seu dia a dia!
-
-**RECOMENDAÇÕES PERSONALIZADAS:**
-• Com base no seu perfil de negócio (configurado em Configurações), o app mostra dicas úteis.`,
       color: '#F3E8FF',
+      fullContent: `📊 COMO INTERPRETAR O DASHBOARD
+
+O Dashboard é a tela principal onde você tem uma visão geral da saúde do seu negócio.
+
+1. Resumo Financeiro:
+   • Entradas: Total de vendas e recebimentos.
+   • Saídas: Total de despesas e custos.
+   • Saldo: O valor líquido (Entradas - Saídas).
+
+2. Gráficos:
+   • Gráfico de Barras/Linha: Mostra a evolução das suas finanças ao longo dos dias do mês.
+   • Gráfico de Pizza: Mostra a distribuição das suas despesas por categoria.
+
+3. Atalhos Rápidos:
+   Botões no topo para adicionar rapidamente novas transações.
+
+💡 Dica: Use os filtros de data no topo para ver períodos específicos (Dia, Semana, Mês).`,
     },
     {
       id: 'transaction',
       icon: '💰',
       title: 'Como adicionar uma transação (entrada/saída)',
-      content: `**ONDE ADICIONAR:**
-• Aba Lançamentos → Escolha a visualização: Dia, Semana, Mês ou Intervalo.
-• No Dashboard → Use o botão de lançamento rápido (⚡) para entradas/saídas simples.
-
-**CAMPOS OBRIGATÓRIOS:**
-1. Tipo: Entrada (dinheiro que entra) ou Saída (dinheiro que sai).
-2. Valor: Digite o valor em reais (ex: 150,00 ou 1500).
-3. Descrição: O que foi (ex: "Venda de bolo", "Conta de luz").
-4. Categoria: Classifique (ex: Vendas, Aluguel, Reposição, etc.).
-5. Data: Dia da transação (padrão: hoje).
-6. Hora: Hora da transação (padrão: hora atual).
-
-**DICAS:**
-• Use categorias consistentes para facilitar relatórios futuros.
-• Entradas são sempre valores positivos (verde).
-• Saídas são sempre valores negativos (vermelho).
-• Você pode editar ou excluir transações clicando nelas.
-
-**VISUALIZAÇÃO POR PERÍODO:**
-• Dia: Veja todas as transações de um dia específico.
-• Semana: Veja o resumo semanal (entradas, saídas e saldo).
-• Mês: Veja o resumo mensal completo.
-• Intervalo: Escolha duas datas para ver um período personalizado.`,
       color: '#DBEAFE',
+      fullContent: `💰 COMO ADICIONAR TRANSAÇÕES
+
+Registrar suas movimentações é essencial para o controle.
+
+1. Toque no botão "+" (flutuante ou no menu).
+2. Escolha o tipo:
+   • Receita (Verde): Vendas, recebimentos.
+   • Despesa (Vermelho): Contas, compras, pagamentos.
+3. Digite o valor.
+4. Digite uma descrição (ex: "Venda de Bolo").
+5. Selecione a Categoria.
+6. Ajuste a data se não for hoje.
+7. Clique em Salvar.
+
+💡 Dica: Seja consistente! Registre tudo, até os pequenos gastos.`,
     },
     {
       id: 'debts',
       icon: '💳',
       title: 'Como cadastrar e acompanhar dívidas',
-      content: `**O QUE SÃO DÍVIDAS NO APP:**
-Dívidas são valores parcelados que você deve pagar ao longo do tempo (cartão de crédito, empréstimos, financiamentos, compras parceladas, etc.).
-
-**COMO CADASTRAR UMA DÍVIDA:**
-1. Vá na aba Débitos.
-2. Clique em + Nova Dívida (ou use o lançamento rápido no Dashboard).
-3. Preencha:
-   • Descrição: Nome da dívida (ex: "Cartão Nubank", "Empréstimo João").
-   • Valor Total: Valor total da dívida (ex: R$ 3.000,00).
-   • Número de Parcelas: Quantas vezes vai pagar (ex: 12).
-   • Data da Compra: Quando foi feita a compra/dívida.
-   • Dia de Vencimento da Fatura: Dia do mês que vence (ex: dia 10).
-   • Mês de Vencimento: Mês da primeira cobrança (ex: 12 para dezembro).
-
-**COMO FUNCIONA:**
-• O app calcula automaticamente o valor de cada parcela (Total ÷ Número de Parcelas).
-• Mostra uma barra de progresso visual: parcelas pagas (verde), próxima parcela (amarelo), vencidas (vermelho).
-• Você pode marcar parcelas como pagas clicando nos quadradinhos numerados.
-
-**ALERTAS DE DÍVIDA:**
-• Se o total de dívidas em aberto ultrapassar o limite configurado (em Configurações > Alertas), você verá um alerta laranja no Dashboard e na aba Débitos.
-
-**EDITAR OU EXCLUIR:**
-• Clique em "Editar" para alterar valores ou parcelas.
-• Clique em "Excluir" para remover a dívida completamente.
-
-**DICA IMPORTANTE:**
-• Sempre atualize as parcelas pagas para manter o controle correto do quanto ainda deve!`,
       color: '#FEE2E2',
+      fullContent: `💳 GERENCIANDO DÍVIDAS E CONTAS A PAGAR
+
+Não perca prazos de pagamento.
+
+1. Acesse o menu "Dívidas" ou "A Pagar".
+2. Clique em "Adicionar Dívida".
+3. Preencha:
+   • Descrição (ex: Fornecedor X)
+   • Valor total
+   • Data de vencimento
+4. Acompanhamento:
+   • O app mostrará dias restantes para o vencimento.
+   • Quando pagar, marque como "Paga" para dar baixa.
+
+⚠️ O ícone ficará vermelho se a dívida estiver vencida!`,
+    },
+    {
+      id: 'credit_card',
+      icon: '💳',
+      title: 'Como lançar compras no cartão de crédito',
+      color: '#FEF3C7',
+      fullContent: `💳 COMPRAS NO CARTÃO DE CRÉDITO
+
+Para controlar gastos parcelados ou fatura.
+
+1. Ao adicionar uma DESPESA.
+2. No campo "Forma de Pagamento" ou "Conta", selecione "Cartão de Crédito".
+3. Se for parcelado, informe o número de parcelas.
+   • O app pode dividir o valor automaticamente nos meses seguintes.
+4. Essas despesas aparecerão na data de compra, mas você pode controlar o pagamento da fatura separadamente.`,
     },
     {
       id: 'orders',
       icon: '📦',
       title: 'Como cadastrar e acompanhar encomendas',
-      content: `**O QUE SÃO ENCOMENDAS:**
-Encomendas são pedidos que você recebe de clientes, com data de entrega futura e possibilidade de registrar um sinal (entrada antecipada).
-
-**COMO CADASTRAR UMA ENCOMENDA:**
-1. Vá na aba Encomendas.
-2. Clique em + Nova Encomenda.
-3. Preencha os campos:
-   • Nome do Cliente: Quem fez o pedido (ex: "Maria Silva").
-   • Tipo de Encomenda: O que foi encomendado (ex: "Bolo de Chocolate 3kg").
-   • Data de Entrega: Quando deve ser entregue (deve ser data futura).
-   • Hora da Entrega: Horário combinado (ex: 14:00).
-   • Valor da Encomenda: Valor total do pedido.
-   • Sinal Pago/Entrada: Valor já recebido como adiantamento (pode ser R$ 0,00).
-   • Status: Selecione o status atual:
-     - 🟡 A receber: Encomenda confirmada, aguardando pagamento.
-     - 🔵 Em Andamento: Você está preparando/produzindo.
-     - 🟢 Recebidos: Encomenda entregue e pago completamente.
-     - 🔴 Cancelados: Cliente cancelou.
-   • Observações: Detalhes extras (sabor, decoração, endereço, etc.).
-
-**REGISTRO AUTOMÁTICO DE ENTRADA:**
-• Quando você cadastra uma encomenda com sinal maior que R$ 0,00, o sistema cria automaticamente um lançamento de ENTRADA na aba Lançamentos.
-• Isso ajuda a controlar seu fluxo de caixa sem duplicar trabalho!
-
-**VALOR RESTANTE:**
-• O app calcula automaticamente: Valor Total - Sinal Pago = Restante.
-• Esse valor aparece destacado em cada encomenda.
-
-**FILTROS E BUSCA:**
-• Use a barra de busca para encontrar encomendas por nome de cliente, tipo ou observações.
-• Filtre por status: "Todos", "A receber", "Em Andamento", "Recebidos", "Cancelados".
-
-**NOTIFICAÇÃO DE ENCOMENDAS DO DIA SEGUINTE:**
-• Após as 12h (meio-dia), o app mostra um alerta automático se você tiver encomendas para o dia seguinte.
-• Assim você não esquece de preparar os pedidos!
-
-**EDITAR OU EXCLUIR:**
-• Clique em "Editar" para alterar dados da encomenda.
-• Clique em "Excluir" para remover (o lançamento de entrada relacionado também será excluído automaticamente).
-
-**DICA IMPORTANTE:**
-• Quando mudar o status para "Cancelados", o lançamento de entrada do sinal será cancelado automaticamente no fluxo de caixa.`,
       color: '#FEF3C7',
+      fullContent: `📦 GESTÃO DE ENCOMENDAS
+
+Ideal para quem trabalha com entregas ou delivery.
+
+1. Acesse o módulo "Encomendas".
+2. Clique em "Nova Encomenda".
+3. Informe:
+   • Nome do Cliente
+   • Produto/Pedido
+   • Data de Entrega
+   • Valor Combinado
+4. Atualize o status:
+   • Pendente -> Em Preparo -> Pronto -> Entregue.
+
+✅ Isso ajuda a organizar sua produção diária e não atrasar entregas.`,
     },
     {
       id: 'recurring',
-      icon: '🔁',
+      icon: '🔄',
       title: 'Como cadastrar despesas recorrentes',
-      content: `**O QUE SÃO DESPESAS RECORRENTES:**
-São contas fixas que se repetem todo mês (aluguel, água, luz, telefone, internet, salários, etc.). O app ajuda você a lembrar e controlar esses gastos.
-
-**COMO CADASTRAR:**
-1. Vá na aba Recorrentes.
-2. Clique em + Nova Despesa Recorrente.
-3. Preencha:
-   • Descrição: Nome da despesa (ex: "Aluguel", "Conta de Luz").
-   • Valor: Quanto custa por mês (ex: R$ 800,00).
-   • Categoria: Classifique (ex: "Aluguel", "Conta de Energia").
-   • Dia de Vencimento: Dia do mês que vence (ex: 10).
-   • Data de Início: Quando começou essa despesa recorrente.
-   • Data de Fim (opcional): Se tem data para terminar, preencha. Deixe vazio para despesas contínuas.
-
-**COMO FUNCIONA:**
-• O app NÃO registra automaticamente as despesas no fluxo de caixa.
-• Ele serve como lembrete visual e aparece na tela de Recorrentes.
-• Você mesmo deve registrar a despesa na aba Lançamentos quando pagar.
-
-**INDICADOR VISUAL:**
-• ✅ Verde "Pago": Se você já registrou um lançamento no mês atual com descrição e valor iguais.
-• ⏳ Cinza "Pendente": Se ainda não foi pago neste mês.
-• 🔴 Vermelho "Vencido": Se o dia de vencimento já passou e ainda não foi pago.
-
-**FILTROS:**
-• "Todas", "Pagas", "Pendentes", "Vencidas".
-• Barra de busca por descrição.
-
-**RELATÓRIOS:**
-• Na aba Relatórios (Intervalo), o sistema separa automaticamente:
-  - Despesas Fixas (recorrentes): Detecta quais saídas correspondem às suas recorrentes cadastradas.
-  - Despesas Variáveis: O restante das saídas.
-
-**DICA:**
-• Configure todas as suas contas fixas aqui para ter controle total do que é gasto obrigatório todo mês!`,
       color: '#FEF3C7',
+      fullContent: `🔄 DESPESAS RECORRENTES (FIXAS)
+
+Para contas que se repetem todo mês (Aluguel, Internet, Luz).
+
+1. Adicione uma despesa normalmente.
+2. Ative a opção "Repetir" ou "Recorrente".
+3. Escolha a frequência (Mensal, Semanal, etc.).
+4. O app lançará automaticamente essa despesa nos períodos futuros.
+
+💡 Isso economiza tempo e já deixa seu fluxo de caixa futuro previsto.`,
     },
     {
       id: 'goals',
       icon: '🎯',
       title: 'Como definir e acompanhar metas financeiras',
-      content: `**O QUE SÃO METAS FINANCEIRAS:**
-São objetivos de entradas (receita) que você quer atingir por mês. Exemplo: "Quero faturar R$ 10.000,00 em dezembro".
+      color: '#ECFDF5',
+      fullContent: `🎯 METAS FINANCEIRAS
 
-**COMO CONFIGURAR UMA META:**
-1. No Dashboard, clique no card 🎯 Meta (ou no botão "Add/Editar").
-2. Digite o valor da meta mensal (ex: 10000).
-3. Clique em "Salvar".
+Defina objetivos para motivar seu crescimento.
 
-**O QUE ACONTECE:**
-• O app calcula automaticamente o progresso baseado nas suas entradas do mês.
-• O card de meta mostra:
-  - Valor da meta.
-  - Progresso em % (ex: 75%).
-  - Barra de progresso colorida:
-    - 🔴 Vermelho: Abaixo de 50% (alerta).
-    - 🟠 Laranja: 50% a 74% (atenção).
-    - 🔵 Azul: 75% a 99% (quase lá).
-    - 🟢 Verde: 100% ou mais (meta atingida! 🎉).
+1. Vá em "Metas" ou no card de Metas do Dashboard.
+2. Defina um valor alvo para o mês (ex: Faturar R$ 5.000).
+3. O app mostrará uma barra de progresso.
+4. Acompanhe a % atingida dia a dia.
 
-**MENSAGENS MOTIVACIONAIS:**
-• O app mostra mensagens automáticas conforme seu progresso:
-  - "Meta definida, ainda sem progresso."
-  - "Você atingiu 45% da meta. Mantenha o foco!"
-  - "Ótimo! Você já alcançou 82% da meta deste mês."
-  - "Parabéns! Meta deste mês atingida ✅."
-
-**ALERTAS DE PROGRESSO BAIXO:**
-• Se você estiver com menos de 50% da meta no mês atual, verá um alerta amarelo/laranja no Dashboard sugerindo revisar suas entradas.
-
-**HISTÓRICO DE METAS (se implementado):**
-• Veja metas de meses anteriores.
-• Compare se atingiu ou não cada mês.
-• Analise sua evolução ao longo do tempo.
-
-**DICA:**
-• Configure metas realistas baseadas no seu histórico!
-• Revise semanalmente seu progresso para ajustar estratégias.`,
-      color: '#D1FAE5',
+🏆 Atingir metas ajuda a manter o foco no crescimento do negócio.`,
     },
     {
       id: 'reports',
-      icon: '📊',
+      icon: '📄',
       title: 'Como gerar relatórios em PDF ou enviar por WhatsApp',
-      content: `**ONDE GERAR RELATÓRIOS:**
-Aba Relatórios → Escolha a visualização:
-• Mês: Relatório mensal completo.
-• Intervalo: Escolha duas datas para período personalizado.
+      color: '#F3E8FF',
+      fullContent: `📄 RELATÓRIOS E COMPARTILHAMENTO
 
-**TIPOS DE RELATÓRIOS DISPONÍVEIS:**
+Envie dados para seu contador ou sócio.
 
-**1) RELATÓRIO MENSAL:**
-• Total de entradas, saídas e saldo do mês.
-• Lista completa de todas as transações.
-• Gráficos visuais de barras (diário, semanal ou mensal).
-• Opções:
-  - 📄 Baixar PDF: Gera um arquivo PDF para salvar ou imprimir.
-  - 📲 Enviar WhatsApp: Compartilha o PDF direto pelo WhatsApp.
-
-**2) RELATÓRIO POR INTERVALO (PERÍODO PERSONALIZADO):**
-• Escolha data de Início e Fim.
-• O app gera relatório com:
-  - Total de entradas, saídas e saldo do período.
-  - Média diária (quanto entra/sai por dia em média).
-  - Classificação de despesas:
-    - Fixas (recorrentes): Despesas que você cadastrou em Recorrentes.
-    - Variáveis: Todas as outras despesas.
-  - Lista detalhada de transações.
-  - Gráfico de barras com entradas (verde) e saídas (vermelho) por dia.
-
-**COMO USAR:**
-1. Escolha o período (mês atual ou intervalo personalizado).
-2. Clique em "Baixar PDF" para salvar no celular/computador.
-3. Ou clique em "Enviar WhatsApp" para compartilhar com contador, sócio ou cliente.
-
-**INFORMAÇÕES NO PDF:**
-• Logo da sua empresa (se configurado em Configurações).
-• Data do relatório.
-• Cards resumidos: Total de entradas, saídas, saldo e média diária.
-• Tabela completa: Data/Hora, Tipo (Entrada/Saída), Descrição, Categoria e Valor.
-
-**DICA:**
-• Envie relatórios mensais para seu contador facilitar a contabilidade!
-• Use relatórios por intervalo para analisar períodos específicos (ex: semana de promoção, feriados).`,
-      color: '#EDE9FE',
+1. Acesse a aba "Relatórios".
+2. Escolha o período desejado (Mês atual, Ano, Personalizado).
+3. Clique em "Exportar" ou ícone de compartilhar.
+4. Escolha o formato (PDF para visualização, CSV/Excel para planilhas).
+5. Selecione o WhatsApp ou E-mail para enviar o arquivo gerado.`,
     },
     {
       id: 'settings',
       icon: '⚙️',
       title: 'Como personalizar configurações e alertas',
-      content: `A aba Configurações permite ajustar o app conforme suas necessidades.
+      color: '#ECFDF5',
+      fullContent: `⚙️ CONFIGURAÇÕES E ALERTAS
 
-**1) PREFERÊNCIAS GERAIS:**
-• Tema: Escolha entre Claro, Escuro ou Automático.
-• Idioma: Português (padrão).
-• Moeda: Real brasileiro (R$).
-• Logo da Empresa: Faça upload do logo para aparecer nos relatórios PDF.
+Ajuste o app ao seu gosto.
 
-**2) ALERTAS AUTOMÁTICOS:**
-Ative alertas visuais no Dashboard para te avisar sobre:
-• ⚠️ Saldo Negativo: Se o saldo mensal ficar negativo, mostra um alerta vermelho.
-• 💳 Limite de Dívidas: Configure um valor máximo de dívidas em aberto (ex: R$ 5.000,00). Se ultrapassar, mostra alerta laranja.
-
-**COMO CONFIGURAR:**
-• Vá em Configurações → Alertas.
-• Ative/desative cada tipo de alerta.
-• Defina o limite de dívidas em reais.
-
-**3) PERFIL DO NEGÓCIO (RECOMENDAÇÕES PERSONALIZADAS):**
-Configure informações sobre sua empresa para receber dicas personalizadas no Dashboard:
-• Tipo de Negócio: Comércio, Serviços, Alimentação, Autônomo, MEI, Indústria, etc.
-• Faturamento Médio Mensal: Faixas (até R$ 5 mil, R$ 5-20 mil, acima de R$ 20 mil).
-• Objetivo Principal: Escolha o que é mais importante para você:
-  - 💰 Controlar dívidas: Foco em manter dívidas organizadas.
-  - 📊 Organizar fluxo de caixa diário: Controle detalhado de entradas e saídas.
-  - 💹 Guardar para investimentos: Economizar e investir sobras.
-  - ⏰ Evitar atrasos em contas: Não esquecer vencimentos.
-
-**O QUE ACONTECE:**
-Com base no seu perfil, o app mostra recomendações automáticas no Dashboard, como:
-• "Dica: Acompanhe a aba 'Dívidas' toda semana e use alertas de limite para não ultrapassar seu orçamento." (para quem escolheu "Controlar dívidas").
-• "Dica: Use a visão 'Dia'/'Semana' e os filtros para revisar entradas e saídas todo fim de dia." (para "Organizar fluxo de caixa diário").
-
-**4) SINCRONIZAÇÃO:**
-• O app sincroniza automaticamente com o servidor (Supabase).
-• Funciona offline: dados são salvos localmente e sincronizados quando voltar a conexão.
-
-**DICA:**
-• Configure seu perfil logo no início para receber dicas relevantes ao seu tipo de negócio!
-• Ative alertas para não perder controle do seu fluxo financeiro.`,
-      color: '#F0FDF4',
+1. Acesse o menu "Configurações".
+2. Em "Alertas":
+   • Ative lembretes diários para não esquecer de registrar.
+   • Ative avisos de contas a pagar.
+3. Em "Geral":
+   • Altere moeda, idioma ou tema (Claro/Escuro).`,
     },
     {
       id: 'categories',
       icon: '🏷️',
       title: 'Categorias Personalizadas',
-      content: `As categorias personalizadas permitem que você organize suas receitas e despesas do jeito que faz sentido para o SEU negócio.
-
-📋 PARA QUE SERVE:
-• Organizar lançamentos por tipo de gasto/receita
-• Facilitar a visualização nos relatórios e gráficos
-• Identificar rapidamente onde seu dinheiro está indo
-• Adaptar o app ao seu tipo de negócio específico
-
-🎨 COMO USAR:
-1. Acesse o menu e toque em "Categorias"
-2. Toque no botão "+" para criar nova categoria
-3. Escolha o nome (ex: "Fornecedores", "Projetos", "Manutenção")
-4. Selecione se é Receita, Despesa ou Ambos
-5. Escolha um ícone e uma cor para identificação visual
-6. Salve a categoria
-
-💡 DICAS:
-• Crie categorias específicas do seu negócio (restaurante: "Alimentos", "Bebidas"; oficina: "Peças", "Mão de obra")
-• Use cores diferentes para identificar rapidamente nos gráficos
-• Categorias padrão não podem ser deletadas, mas você pode criar quantas quiser
-• Ao criar lançamentos, suas categorias personalizadas aparecem automaticamente
-
-⚙️ EDITAR/EXCLUIR:
-• Toque em uma categoria existente para editar
-• Use o ícone de lixeira para excluir categorias que você criou
-• Categorias padrão do sistema têm o marcador "Padrão"
-
-📊 BENEFÍCIOS:
-• Relatórios mais precisos e relevantes
-• Gráficos personalizados para seu negócio
-• Melhor controle e organização financeira
-• Decisões baseadas em dados reais do SEU negócio`,
       color: '#F3E8FF',
+      fullContent: `🏷️ CATEGORIAS PERSONALIZADAS
+
+Organize seus lançamentos do seu jeito.
+
+1. Vá em Configurações > Categorias.
+2. Você verá a lista padrão.
+3. Clique em "+" para criar nova.
+4. Escolha um ícone e uma cor.
+5. Dê um nome (ex: "Embalagens", "Ingredientes Especiais").
+
+Agora essa categoria aparecerá na hora de lançar uma transação.`,
     },
     {
       id: 'backup',
-      icon: '💾',
+      icon: '☁️',
       title: 'Backup de Dados',
-      content: `O sistema de backup garante que seus dados financeiros estejam sempre seguros, permitindo salvar cópias locais ou compartilhar com seu contador.
-
-📋 PARA QUE SERVE:
-• Segurança: ter cópia dos seus dados fora da nuvem
-• Tranquilidade: nunca perder informações importantes
-• Contabilidade: enviar dados facilmente para seu contador
-• Comprovação: guardar registros para consultas futuras
-• Restauração: recuperar dados se necessário
-
-💾 TIPOS DE BACKUP:
-
-1️⃣ BACKUP COMPLETO (JSON):
-• Contém TODOS os seus dados (transações, dívidas, encomendas, metas, etc.)
-• Formato técnico que preserva tudo
-• Ideal para restauração completa
-• Use antes de atualizações importantes
-
-2️⃣ BACKUP SIMPLIFICADO (CSV):
-• Apenas lançamentos (receitas e despesas)
-• Formato de planilha (abre no Excel/Google Sheets)
-• Ideal para enviar ao contador
-• Fácil de ler e analisar
-
-🔄 BACKUP MANUAL:
-1. Acesse "Backup de Dados" no menu
-2. Escolha o tipo: Completo (JSON) ou Simplificado (CSV)
-3. Toque no botão correspondente
-4. O arquivo será gerado e você pode:
-   • Salvar no seu dispositivo
-   • Compartilhar via WhatsApp/Email
-   • Enviar para Google Drive/Dropbox
-
-⏰ BACKUP AUTOMÁTICO:
-1. Na tela de Backup, ative "Backup Automático"
-2. Escolha a frequência: Semanal ou Mensal
-3. O app criará backups automaticamente
-4. Você receberá notificação quando estiver pronto
-5. A data do último backup fica registrada
-
-💡 DICAS IMPORTANTES:
-• Faça backup ANTES de deletar dados importantes
-• Guarde backups em local seguro (nuvem)
-• Backup mensal é ideal para pequenos negócios
-• Backup semanal para quem tem muito movimento
-• O backup CSV é perfeito para análises no Excel
-
-📤 COMPARTILHAMENTO:
-• Envie backup CSV para seu contador mensalmente
-• Guarde backups JSON para emergências
-• Use WhatsApp Business para enviar rapidamente
-• Organize backups por data em pastas
-
-🔒 SEGURANÇA:
-• Seus backups contêm dados sensíveis
-• Não compartilhe com pessoas não autorizadas
-• Use senhas fortes nas nuvens onde guardar
-• Backups locais ficam apenas no seu dispositivo`,
       color: '#DBEAFE',
+      fullContent: `☁️ BACKUP E SEGURANÇA
+
+Seus dados seguros na nuvem.
+
+• O app sincroniza automaticamente seus dados com o servidor seguro (Supabase).
+• Se você trocar de celular, basta fazer login com seu e-mail e senha que tudo estará lá.
+• Não é necessário salvar arquivos manualmente, a sincronização é automática quando há internet.`,
     },
     {
-      id: 'customize_dashboard',
-      icon: '⚙️',
-      title: 'Personalizar Dashboard',
-      content: `O Dashboard personalizável permite que você decida quais informações quer ver primeiro e organize tudo do jeito que preferir.
-
-📋 PARA QUE SERVE:
-• Ver PRIMEIRO o que é importante para VOCÊ
-• Reduzir poluição visual
-• Aumentar produtividade e agilidade
-• Adaptar o app ao seu estilo de trabalho
-• Melhorar performance (não carrega widgets desnecessários)
-
-🎯 WIDGETS DISPONÍVEIS:
-
-💰 Saldo Disponível - Seu dinheiro atual em tempo real
-📅 Resumo Mensal - Receitas, despesas e saldo do mês
-📊 Gráficos - Visualização gráfica do fluxo de caixa
-🔔 Alertas - Avisos sobre dívidas e metas
-🏆 Metas Financeiras - Progresso das suas metas
-💳 Dívidas Pendentes - Parcelas e contas a pagar
-📝 Últimos Lançamentos - Transações recentes
-➕ Ações Rápidas - Botões para adicionar lançamentos
-
-⚙️ COMO PERSONALIZAR:
-1. Acesse "Configurações" no menu
-2. Toque em "Personalizar Dashboard"
-3. Você verá todos os widgets disponíveis
-
-🔧 OPÇÕES DE PERSONALIZAÇÃO:
-
-✅ ATIVAR/DESATIVAR:
-• Use o botão ao lado de cada widget
-• Widgets desativados não aparecem no dashboard
-• Ative apenas o que você realmente usa
-
-⬆️⬇️ REORDENAR:
-• Toque em "Subir" para mover widget para cima
-• Toque em "Descer" para mover widget para baixo
-• O primeiro widget fica no topo do dashboard
-• Coloque as informações mais importantes no topo
-
-💡 EXEMPLOS DE USO:
-
-🍕 Restaurante/Bar:
-1. Saldo Disponível (topo)
-2. Resumo Mensal
-3. Dívidas Pendentes (fornecedores)
-4. Ações Rápidas
-5. Desativar: Metas, Gráficos detalhados
-
-🔧 Mecânico/Oficina:
-1. Alertas (não esquecer pagamentos)
-2. Dívidas Pendentes
-3. Saldo Disponível
-4. Últimos Lançamentos
-5. Desativar: Metas
-
-💼 Freelancer/Autônomo:
-1. Metas Financeiras (foco em objetivos)
-2. Resumo Mensal
-3. Gráficos (análise de desempenho)
-4. Saldo Disponível
-5. Desativar: Dívidas (se não usar)
-
-🏪 Comércio:
-1. Resumo Mensal (controle diário)
-2. Últimos Lançamentos
-3. Ações Rápidas (agilidade)
-4. Saldo Disponível
-5. Alertas
-
-✅ SALVAR ALTERAÇÕES:
-• Depois de personalizar, toque em "Salvar Alterações"
-• O dashboard será atualizado imediatamente
-• Suas preferências ficam salvas permanentemente
-
-🔄 RESTAURAR PADRÃO:
-• Se quiser voltar à configuração original
-• Toque em "Restaurar Padrão"
-• Confirme a ação
-• Todos os widgets voltam à posição e estado inicial
-
-💡 DICAS:
-• Comece desativando o que você NÃO usa
-• Coloque no topo o que você consulta várias vezes ao dia
-• Teste configurações diferentes até achar a ideal
-• Widgets desativados não consomem recursos
-• Você pode mudar a qualquer momento
-
-🎨 BENEFÍCIOS:
-• Dashboard mais limpo e organizado
-• Acesso rápido às informações importantes
-• App mais rápido (menos widgets = menos carregamento)
-• Experiência única para cada tipo de negócio
-• Mais produtividade no dia a dia`,
+      id: 'custom_dashboard',
+      icon: '🎨',
+      title: 'Dashboard Personalizável',
       color: '#FEE2E2',
+      fullContent: `🎨 PERSONALIZAR DASHBOARD
+
+Deixe a tela inicial com a sua cara.
+
+• Você pode ocultar valores (ícone de olho) para privacidade.
+• Algumas versões permitem reordenar os cards.
+• Use o filtro de período no topo para ver apenas o que interessa no momento.`,
+    },
+    {
+      id: 'notifications',
+      icon: '🔔',
+      title: 'Notificações Personalizadas',
+      color: '#FEF3C7',
+      fullContent: `🔔 CENTRAL DE NOTIFICAÇÕES
+
+Fique por dentro de tudo.
+
+O app envia notificações sobre:
+• Contas vencendo hoje ou amanhã.
+• Dicas de economia.
+• Lembretes para registrar o fechamento do caixa.
+• Avisos de metas atingidas.
+
+Você pode gerenciar quais notificações quer receber nas Configurações.`,
+    },
+    {
+      id: 'advanced_goals',
+      icon: '🏆',
+      title: 'Metas Financeiras Avançadas',
+      color: '#ECFDF5',
+      fullContent: `🏆 METAS AVANÇADAS
+
+Vá além do básico.
+
+Além da meta de faturamento mensal, você pode definir:
+• Teto de Gastos: Limite máximo para despesas (ex: Gastar max R$ 2.000).
+• Metas por Categoria: Ex: Gastar menos de R$ 500 com Transporte.
+
+Acompanhe cada uma individualmente para identificar onde economizar.`,
+    },
+    {
+      id: 'sync',
+      icon: '🔄',
+      title: 'Sincronização em Tempo Real',
+      color: '#F3E8FF',
+      fullContent: `🔄 SINCRONIZAÇÃO EM TEMPO REAL
+
+Use em múltiplos dispositivos.
+
+• Você pode usar o app no celular e no computador (via Web).
+• Tudo o que fizer em um, aparece no outro instantaneamente (necessário internet).
+• Ideal para sócios ou casais que gerenciam o negócio juntos.`,
     },
   ];
 
-  const toggleExpand = (id: string) => {
-    const isExpanded = expandedId === id;
-    setExpandedId(isExpanded ? null : id);
-  };
+  // --- 2. AS INSTRUÇÕES DETALHADAS (NOVAS) ---
+  const sections: Section[] = [
+    {
+      id: 'faq',
+      title: 'Guia Rápido (Perguntas Frequentes)',
+      icon: '❓',
+      description: 'Respostas rápidas para as principais dúvidas de uso.',
+      cards: classicCards,
+    },
+    {
+      id: 'primeiros_passos',
+      title: 'Primeiros Passos e Configuração',
+      icon: '🚀',
+      description: 'Comece com o pé direito configurando o app para seu negócio.',
+      cards: [
+        {
+          id: 'modo_iniciante',
+          icon: '🎓',
+          title: 'Modo Iniciante Guiado',
+          shortDescription: 'Passo a passo inicial para configurar sua conta.',
+          color: '#DBEAFE',
+          fullContent: `🎓 MODO INICIANTE GUIADO
 
-  const handleSupportPress = async () => {
-    try {
-      // Get WhatsApp number from SecureStore (AdminSettings)
-      const whatsappNumber = await SecureStore.getItemAsync('whatsappNumber') || '5573999348552';
-      const message = encodeURIComponent('Olá! Preciso de ajuda com o Fast Cash Flow.');
-      const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${message}`;
-      Linking.openURL(whatsappUrl).catch(err => console.error('Erro ao abrir WhatsApp:', err));
-    } catch (error) {
-      console.error('Erro ao buscar número do WhatsApp:', error);
-      // Fallback para número padrão
-      const message = encodeURIComponent('Olá! Preciso de ajuda com o Fast Cash Flow.');
-      const whatsappUrl = `https://wa.me/5573999348552?text=${message}`;
-      Linking.openURL(whatsappUrl).catch(err => console.error('Erro ao abrir WhatsApp:', err));
-    }
-  };
+Para que serve:
+Ajuda você a dar os primeiros passos no app de forma simples e rápida, sem ficar perdido.
 
-  const formatContent = (content: string) => {
-    return content.split('\n').map((paragraph, index) => {
-      if (paragraph.includes('**')) {
-        // Handle bold text
-        const parts = paragraph.split('**');
-        return (
-          <Text key={index} style={styles.content}>
-            {parts.map((part, partIndex) =>
-              partIndex % 2 === 1 ? (
-                <Text key={partIndex} style={styles.boldText}>
-                  {part}
-                </Text>
-              ) : (
-                part
-              )
-            )}
+📱 Como usar:
+
+1. Logo após cadastrar sua empresa, siga a lista de tarefas "Primeiros Passos".
+
+2. Ações recomendadas:
+   • Registrar primeira entrada
+   • Registrar primeira saída
+   • Definir meta mensal
+   • Cadastrar pelo menos um produto ou serviço
+
+3. O app vai liberando funcionalidades mais avançadas conforme você completa esses passos.
+
+💡 DICA: Não pule o modo iniciante! Ele garante que sua base de dados fique correta desde o dia 1.`,
+        },
+        {
+          id: 'perfis_uso',
+          icon: '🏪',
+          title: 'Perfis de Uso (Segmentos)',
+          shortDescription: 'Adaptação do app para Lanchonetes, Serviços, Lojas, etc.',
+          color: '#FEF3C7',
+          fullContent: `🏪 PERFIS DE USO (SEGMENTOS DE NEGÓCIO)
+
+Para que serve:
+Adapta o app para falar a língua do seu tipo de negócio.
+
+⚙️ Como configurar:
+1. Vá em "Configurações" > "Dados da Empresa"
+2. Escolha seu tipo de negócio (Lanchonete, Loja, Serviços, Autônomo).
+
+O que muda:
+• Categorias sugeridas (ex: "Ingredientes" para comida, "Peças" para lojas).
+• Dicas personalizadas.
+• Terminologias nos relatórios.
+
+💡 DICA: Escolher o perfil certo economiza tempo criando categorias manualmente.`,
+        },
+      ],
+    },
+    {
+      id: 'gestao_financeira',
+      title: 'Gestão Financeira Avançada',
+      icon: '📈',
+      description: 'Domine o fluxo de caixa, diagnósticos e rotinas.',
+      cards: [
+        {
+          id: 'semaforo_saude',
+          icon: '🚦',
+          title: 'Semáforo de Saúde Financeira',
+          shortDescription: 'Entenda se sua empresa está no Verde, Amarelo ou Vermelho.',
+          color: '#ECFDF5',
+          fullContent: `🚦 SEMÁFORO DE SAÚDE FINANCEIRA
+
+Para que serve:
+Diagnóstico visual instantâneo da sua situação.
+
+🟢 VERDE (Saudável):
+• Lucro positivo.
+• Contas em dia.
+• Despesas controladas (até 70% das receitas).
+
+🟡 AMARELO (Atenção):
+• Lucro baixo.
+• Despesas altas (70-90% das receitas).
+• Contas próximas do vencimento.
+
+🔴 VERMELHO (Risco):
+• Prejuízo.
+• Despesas maiores que receitas.
+• Dívidas vencidas.
+
+🎯 O que fazer:
+Se estiver amarelo/vermelho, clique em "Ver Diagnóstico" para receber sugestões automáticas de onde cortar gastos.`,
+        },
+        {
+          id: 'rotina_diaria',
+          icon: '📅',
+          title: 'Rotina Diária de Caixa',
+          shortDescription: 'Como fazer o fechamento de caixa diário e semanal.',
+          color: '#F3E8FF',
+          fullContent: `📅 ROTINA DIÁRIA/SEMANAL
+
+Para manter o controle, crie o hábito:
+
+🌅 TELA DIA (Fechamento Diário):
+• Use o botão "Conferir Caixa" ao fim do expediente.
+• Verifique se o dinheiro na gaveta/conta bate com o app.
+• Registre qualquer diferença como "Quebra de Caixa" ou "Sobra".
+
+📆 TELA SEMANA:
+• Analise qual foi o melhor dia de vendas.
+• Identifique dias com zero movimento (esqueceu de lançar?).
+
+💡 DICA: Um fechamento de caixa correto impede furos e furtos.`,
+        },
+        {
+          id: 'a_receber_pagar',
+          icon: '💳',
+          title: 'Fluxo A Receber / A Pagar',
+          shortDescription: 'Visualização de calendário para contas futuras.',
+          color: '#FEE2E2',
+          fullContent: `💳 FLUXO DE A RECEBER / A PAGAR
+
+Para que serve:
+Previsibilidade. Saber se vai ter dinheiro para pagar as contas semana que vem.
+
+Como usar:
+No Dashboard, observe os blocos:
+• A receber (Verde): Vendas a prazo, boletos emitidos.
+• A pagar (Vermelho): Fornecedores, contas fixas futuras.
+
+Funcionalidades:
+• Clique para ver a lista por data.
+• Marque como "Pago" ou "Recebido" direto nessa tela.
+• Filtre por "Vence essa semana" para priorizar pagamentos.`,
+        },
+      ],
+    },
+    {
+      id: 'inteligencia',
+      title: 'Inteligência e Relatórios',
+      icon: '📊',
+      description: 'Alertas automáticos, precificação e relatórios para contador.',
+      cards: [
+        {
+          id: 'alertas_automaticos',
+          icon: '🚨',
+          title: 'Alertas Inteligentes',
+          shortDescription: 'O app avisa sobre gastos anormais e esquecimentos.',
+          color: '#FEF3C7',
+          fullContent: `🚨 ALERTAS E RECOMENDAÇÕES
+
+O app trabalha por você monitorando:
+
+1. Dias sem lançamentos:
+   "Você não registra nada há 3 dias. Aconteceu algo?"
+
+2. Gastos anormais:
+   "Sua despesa com Energia veio 30% acima da média."
+
+3. Contas a vencer:
+   "Boleto do Aluguel vence amanhã!"
+
+💡 DICA: Não ignore os alertas. Eles são seus assistentes financeiros pessoais.`,
+        },
+        {
+          id: 'relatorio_contador',
+          icon: '📄',
+          title: 'Relatório Completo para Contador',
+          shortDescription: 'Gere um DRE simples para enviar para contabilidade.',
+          color: '#EDE9FE',
+          fullContent: `📄 RELATÓRIO PARA CONTADOR
+
+Para que serve:
+Facilitar a vida fiscal e evitar multas.
+
+Como gerar:
+1. Vá em Relatórios > Relatório para Contador.
+2. Escolha o mês.
+3. Gere o PDF ou Excel.
+
+O que contém:
+• Faturamento bruto.
+• Despesas categorizadas.
+• Resultado operacional.
+• Posição de caixa.
+
+Envie todo dia 05 para seu contador e mantenha sua empresa regularizada!`,
+        },
+        {
+          id: 'precificacao',
+          icon: '🏷️',
+          title: 'Calculadora de Preços',
+          shortDescription: 'Como formar o preço de venda ideal.',
+          color: '#ECFDF5',
+          fullContent: `🏷️ FORMAÇÃO DE PREÇO (PRODUTOS)
+
+Para que serve:
+Saber se você está tendo lucro real em cada venda.
+
+Como usar (Menu Produtos > Precificação):
+1. Insira o Custo do Produto (ingredientes, compra).
+2. Defina os Custos Fixos rateados (água, luz, aluguel).
+3. Defina sua Margem de Lucro desejada (ex: 30%).
+4. O app sugere o Preço de Venda ideal.
+
+⚠️ ALERTA: O app avisa se seu preço atual estiver dando prejuízo!`,
+        },
+        {
+          id: 'benchmarks',
+          icon: '🏆',
+          title: 'Benchmarks de Mercado',
+          shortDescription: 'Compare seu desempenho com empresas parecidas.',
+          color: '#DBEAFE',
+          fullContent: `📊 BENCHMARKS (COMPARAÇÃO)
+
+Para que serve:
+Saber se sua empresa está indo bem comparada ao mercado.
+
+Como funciona:
+O sistema compara seus indicadores (anonimamente) com outras empresas do mesmo ramo e tamanho.
+
+Exemplos de insights:
+"Seu gasto com estoque está 10% maior que a média do setor."
+"Sua margem de lucro está excelente, acima de 80% das empresas parecidas."
+
+Use isso para ajustar suas estratégias e metas!`,
+        },
+      ],
+    },
+  ];
+
+  const renderCard = (card: InstructionCard) => (
+    <TouchableOpacity
+      key={card.id}
+      style={[
+        styles.card,
+        { backgroundColor: theme.card, borderLeftColor: card.color, borderLeftWidth: 4 },
+        isTwoColumns && styles.cardTwoColumns,
+      ]}
+      onPress={() => setSelectedCard(card)}
+      activeOpacity={0.7}
+    >
+      <View style={[styles.cardHeader, { backgroundColor: card.color }]}>
+        <Text style={styles.cardIcon}>{card.icon}</Text>
+      </View>
+      <View style={styles.cardBody}>
+        <View style={styles.cardTexts}>
+          <Text style={[styles.cardTitle, { color: theme.text }]}>
+            {card.title}
           </Text>
-        );
-      }
-      return (
-        <Text key={index} style={styles.content}>
-          {paragraph}
-        </Text>
-      );
-    });
-  };
+          {card.shortDescription && (
+            <Text style={[styles.cardDescription, { color: theme.textSecondary }]} numberOfLines={2}>
+              {card.shortDescription}
+            </Text>
+          )}
+        </View>
+        <View style={styles.cardFooter}>
+          <Text style={[styles.cardButton, { color: '#3B82F6' }]}>+</Text>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.background }}>
-      <ScrollView 
-        style={{ flex: 1 }} 
-        contentContainerStyle={{
-          padding: 16,
-          paddingBottom: 80,
-          flexGrow: 1, // ADICIONAR ESTA LINHA
-        }}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-        nestedScrollEnabled={true} // ADICIONAR ESTA LINHA
-      >
-        <ScreenTitle 
-          title="Instruções" 
-          subtitle="Aprenda a usar o sistema" 
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <ScreenTitle
+          title="📖 Instruções Completas"
+          subtitle="Manuais, guias rápidos e dicas avançadas"
         />
 
-        <View style={styles.grid}>
-          {topics.map((topic) => {
-            return (
-              <View key={topic.id} style={[styles.cardContainer, { width: isDesktop ? '48%' : '100%' }]}>
+        {/* Search Bar */}
+        <View style={[styles.searchContainer, { paddingHorizontal: 16 }]}>
+          <View style={[styles.searchBar, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Text style={styles.searchIcon}>🔍</Text>
+            <TextInput
+              style={[styles.searchInput, { color: theme.text }]}
+              placeholder="Buscar instruções..."
+              placeholderTextColor={theme.textSecondary}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <Text style={[styles.searchClear, { color: theme.textSecondary }]}>✕</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
+        {/* Quick Actions */}
+        {searchQuery.length === 0 && (
+          <View style={styles.quickActionsContainer}>
+            <Text style={[styles.quickActionsTitle, { color: theme.textSecondary, paddingHorizontal: 16 }]}>
+              Acesso Rápido
+            </Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.quickActionsScroll}
+            >
+              {quickActions.map((action) => (
                 <TouchableOpacity
-                  style={[
-                    styles.card, 
-                    { 
-                      backgroundColor: topic.color, 
-                      borderColor: theme.card,
-                    }
-                  ]}
-                  onPress={() => toggleExpand(topic.id)}
-                  activeOpacity={0.7}
-                  accessible={true}
-                  accessibilityLabel={`${topic.title}, ${expandedId === topic.id ? 'expandido' : 'contraído'}`}
-                  accessibilityRole="button"
+                  key={action.id}
+                  style={[styles.quickActionCard, { backgroundColor: theme.card }]}
+                  onPress={() => setSearchQuery(action.filter)}
                 >
-                  <View style={styles.cardHeader}>
-                    <Text style={styles.icon}>{topic.icon}</Text>
-                    <Text style={[styles.cardTitle, { color: '#111111' }]}>{topic.title}</Text>
-                    <Text style={styles.expandIcon}>
-                      {expandedId === topic.id ? '−' : '+'}
+                  <Text style={styles.quickActionIcon}>{action.icon}</Text>
+                  <Text style={[styles.quickActionTitle, { color: theme.text }]}>{action.title}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
+        <View style={[styles.content, isDesktop && styles.contentDesktop]}>
+          {sections.map((section) => (
+            <View key={section.id} style={styles.sectionContainer}>
+              <TouchableOpacity
+                style={[styles.sectionHeader, { backgroundColor: theme.card }]}
+                onPress={() => toggleSection(section.id)}
+                activeOpacity={0.8}
+              >
+                <View style={styles.sectionHeaderInfo}>
+                  <Text style={styles.sectionIcon}>{section.icon}</Text>
+                  <View>
+                    <Text style={[styles.sectionTitle, { color: theme.text }]}>{section.title}</Text>
+                    <Text style={[styles.sectionDescription, { color: theme.textSecondary }]}>
+                      {section.description}
                     </Text>
                   </View>
+                </View>
+                <Text style={[styles.sectionArrow, { color: theme.textSecondary }]}>
+                  {expandedSections.has(section.id) ? '▲' : '▼'}
+                </Text>
+              </TouchableOpacity>
 
-                  {expandedId === topic.id && (
-                    <View style={styles.expandedContent}>
-                      {formatContent(topic.content)}
-                    </View>
-                  )}
-                </TouchableOpacity>
-              </View>
-            );
-          })}
+              {expandedSections.has(section.id) && (
+                <View style={[styles.cardsContainer, isTwoColumns && styles.cardsContainerTwoColumns]}>
+                  {section.cards.map(renderCard)}
+                </View>
+              )}
+            </View>
+          ))}
         </View>
 
-        <View style={styles.supportSection}>
-          <Text style={[styles.supportTitle, { color: theme.text }]}>Precisa de ajuda?</Text>
-          <Text style={[styles.supportSubtitle, { color: theme.text }]}>
-            Nossa equipe está pronta para ajudar você a dominar o Fast Cash Flow!
-          </Text>
-          <TouchableOpacity
-            style={[styles.supportButton, { backgroundColor: '#16A34A' }]}
-            onPress={handleSupportPress}
-            activeOpacity={0.8}
-            accessible={true}
-            accessibilityLabel="Entrar em contato com suporte pelo WhatsApp"
-            accessibilityRole="button"
-          >
-            <Text style={styles.supportButtonText}>💬 Entrar em contato com suporte</Text>
-          </TouchableOpacity>
+        <View style={styles.footer}>
+          <View style={styles.helpSection}>
+            <Text style={[styles.helpTitle, { color: theme.text }]}>Precisa de ajuda?</Text>
+            <Text style={[styles.helpText, { color: theme.textSecondary }]}>
+              Nossa equipe está pronta para ajudar você a dominar o Fast Cash Flow!
+            </Text>
+          </View>
         </View>
       </ScrollView>
+
+      {/* Modal de Detalhes */}
+      <Modal
+        visible={selectedCard !== null}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setSelectedCard(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }, isDesktop && styles.modalContentDesktop]}>
+            <View style={[styles.modalHeader, { backgroundColor: selectedCard?.color || '#F3E8FF' }]}>
+              <Text style={styles.modalIcon}>{selectedCard?.icon}</Text>
+              <Text style={styles.modalTitle}>{selectedCard?.title}</Text>
+              <TouchableOpacity
+                style={styles.modalClose}
+                onPress={() => setSelectedCard(null)}
+              >
+                <Text style={styles.modalCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.modalBody}>
+              <Text style={[styles.modalText, { color: theme.text }]}>
+                {selectedCard?.fullContent}
+              </Text>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  title: {
-    fontSize: 24,
-    fontWeight: '800',
-    textAlign: 'center',
-    marginBottom: 8,
+  container: {
+    flex: 1,
   },
-  subtitle: {
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 24,
-    lineHeight: 20,
+  scrollContent: {
+    paddingBottom: 32,
   },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 32,
+  content: {
+    padding: 16,
+  },
+  contentDesktop: {
+    maxWidth: 1200,
+    alignSelf: 'center',
     width: '100%',
   },
-  cardContainer: {
-    // IMPORTANTE: Sempre 100% em mobile, 48% apenas em desktop grande (>=768px)
-    width: '100%', // Forçar 1 coluna em mobile
-    marginBottom: 0,
+  sectionContainer: {
+    marginBottom: 24,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  sectionHeaderInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 12,
+  },
+  sectionIcon: {
+    fontSize: 24,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  sectionDescription: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  sectionArrow: {
+    fontSize: 16,
+    marginLeft: 12,
+  },
+  cardsContainer: {
+    marginTop: 4,
+    gap: 12,
+  },
+  cardsContainerTwoColumns: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
   },
   card: {
+    flexDirection: 'row',
     borderRadius: 12,
-    borderWidth: 1,
-    padding: 16,
-    minHeight: 80,
-    elevation: 2,
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
-    width: '100%',
-    overflow: 'visible', // IMPORTANTE: permitir expansão vertical
+    elevation: 3,
+    marginBottom: 8,
+    alignItems: 'center',
+    minHeight: 80,
+  },
+  cardTwoColumns: {
+    width: '48%',
+    marginBottom: 12,
   },
   cardHeader: {
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 70,
+    height: '100%',
+  },
+  cardIcon: {
+    fontSize: 28,
+  },
+  cardBody: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    justifyContent: 'space-between',
+    padding: 14,
+    paddingLeft: 0,
   },
-  icon: {
-    fontSize: 24,
+  cardTexts: {
+    flex: 1,
+    marginLeft: 10,
   },
   cardTitle: {
-    flex: 1,
     fontSize: 15,
     fontWeight: '700',
-    lineHeight: 20,
   },
-  expandIcon: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#666',
-    width: 24,
-    textAlign: 'center',
+  cardDescription: {
+    fontSize: 12,
+    marginTop: 4,
   },
-  expandedContent: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.1)',
-    width: '100%', // IMPORTANTE: respeitar largura do card
+  cardFooter: {
+    paddingHorizontal: 16,
   },
-  content: {
-    fontSize: 13,
-    lineHeight: 20, // IMPORTANTE: aumentado de 18 para 20
-    color: '#374151',
-    marginBottom: 8,
-    width: '100%',
-    flexWrap: 'wrap', // IMPORTANTE: permitir quebra de linha
+  cardButton: {
+    fontSize: 24,
+    fontWeight: '400',
   },
-  boldText: {
-    fontWeight: '700',
-    color: '#111827',
-  },
-  supportSection: {
+  footer: {
+    padding: 20,
     alignItems: 'center',
-    paddingVertical: 24,
-    borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
+    marginTop: 20,
   },
-  supportTitle: {
+  helpSection: {
+    alignItems: 'center',
+    padding: 20,
+  },
+  helpTitle: {
     fontSize: 18,
     fontWeight: '700',
     marginBottom: 8,
   },
-  supportSubtitle: {
+  helpText: {
     fontSize: 14,
     textAlign: 'center',
-    marginBottom: 16,
-    lineHeight: 20,
-    opacity: 0.8,
   },
-  supportButton: {
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    width: '100%',
+    maxHeight: '85%',
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  modalContentDesktop: {
+    maxWidth: 700,
+  },
+  modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
+    padding: 16,
+    gap: 12,
   },
-  supportButtonText: {
-    color: '#fff',
-    fontSize: 16,
+  modalIcon: {
+    fontSize: 32,
+  },
+  modalTitle: {
+    flex: 1,
+    fontSize: 18,
     fontWeight: '700',
+    color: '#1F2937',
+  },
+  modalClose: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0,0,0,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalCloseText: {
+    fontSize: 18,
+    color: '#1F2937',
+    fontWeight: '600',
+  },
+  modalBody: {
+    padding: 16,
+    maxHeight: 500,
+  },
+  modalText: {
+    fontSize: 14,
+    lineHeight: 22,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  // Search bar styles
+  searchContainer: {
+    marginBottom: 12,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  searchIcon: {
+    fontSize: 16,
+    marginRight: 10,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+  },
+  searchClear: {
+    fontSize: 16,
+    padding: 4,
+  },
+  // Quick actions styles
+  quickActionsContainer: {
+    marginBottom: 16,
+  },
+  quickActionsTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  quickActionsScroll: {
+    paddingHorizontal: 16,
+    gap: 10,
+  },
+  quickActionCard: {
+    width: 80,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  quickActionIcon: {
+    fontSize: 24,
+    marginBottom: 4,
+  },
+  quickActionTitle: {
+    fontSize: 11,
+    fontWeight: '600',
   },
 });

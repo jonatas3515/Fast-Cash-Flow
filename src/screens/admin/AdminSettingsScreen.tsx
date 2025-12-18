@@ -89,8 +89,8 @@ export default function AdminSettingsScreen() {
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 100, padding: 16, gap: 16 }} keyboardShouldPersistTaps="handled">
         <Text style={[styles.title, { color: theme.text }]}>Configurações Administrativas</Text>
 
- <View style={[styles.card, { backgroundColor: theme.card, borderColor: '#ddd' }]}>
-          <Text style={[styles.sectionTitle, { color: '#0ea5e9' }]}>Configurações de Plano</Text>
+ <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <Text style={[styles.sectionTitle, { color: theme.secondary }]}>Configurações de Plano</Text>
           
           <View style={{ gap: 8 }}>
             <View style={{ gap: 4 }}>
@@ -131,8 +131,8 @@ export default function AdminSettingsScreen() {
           </View>
         </View>
 
-        <View style={[styles.card, { backgroundColor: theme.card, borderColor: '#ddd' }]}>
-          <Text style={[styles.sectionTitle, { color: '#16A34A' }]}>Alterar Senha do Administrador</Text>
+        <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <Text style={[styles.sectionTitle, { color: theme.primary }]}>Alterar Senha do Administrador</Text>
           <View style={{ gap: 8 }}>
             <View style={{ gap: 4 }}>
               <Text style={{ color: theme.text, fontSize: 12 }}>Nova senha</Text>
@@ -162,8 +162,8 @@ export default function AdminSettingsScreen() {
           </View>
         </View>
 
-        <View style={[styles.card, { backgroundColor: theme.card, borderColor: '#ddd' }]}>
-          <Text style={[styles.sectionTitle, { color: '#0ea5e9' }]}>Configurações de Suporte</Text>
+        <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <Text style={[styles.sectionTitle, { color: theme.secondary }]}>Configurações de Suporte</Text>
           
           <View style={{ gap: 8 }}>
             <View style={{ gap: 4 }}>
@@ -204,20 +204,20 @@ export default function AdminSettingsScreen() {
           </View>
         </View>
 
-        <View style={[styles.card, { backgroundColor: theme.card, borderColor: '#ddd' }]}>
-          <Text style={[styles.sectionTitle, { color: '#16A34A' }]}>Informações do Sistema</Text>
+        <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <Text style={[styles.sectionTitle, { color: theme.primary }]}>Informações do Sistema</Text>
           
           <View style={{ gap: 8 }}>
             <View style={styles.infoRow}>
-              <Text style={{ color: '#ffffffff', fontSize: 12 }}>Versão do app</Text>
+              <Text style={{ color: theme.textSecondary, fontSize: 12 }}>Versão do app</Text>
               <Text style={{ color: theme.text, fontSize: 12 }}>1.0.0</Text>
             </View>
             <View style={styles.infoRow}>
-              <Text style={{ color: '#ffffffff', fontSize: 12 }}>Ambiente</Text>
+              <Text style={{ color: theme.textSecondary, fontSize: 12 }}>Ambiente</Text>
               <Text style={{ color: theme.text, fontSize: 12 }}>Produção</Text>
             </View>
             <View style={styles.infoRow}>
-              <Text style={{ color: '#ffffffff', fontSize: 12 }}>Última atualização</Text>
+              <Text style={{ color: theme.textSecondary, fontSize: 12 }}>Última atualização</Text>
               <Text style={{ color: theme.text, fontSize: 12 }}>01/11/2025</Text>
             </View>
           </View>
@@ -235,7 +235,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 22, fontWeight: '800', marginBottom: 8 },
   card: { borderWidth: 1, borderRadius: 8, padding: 12 },
   sectionTitle: { fontSize: 16, fontWeight: '700', marginBottom: 12 },
-  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 6, padding: 10 },
+  input: { borderWidth: 1, borderRadius: 6, padding: 10 },
   infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 },
   saveBtn: { padding: 14, borderRadius: 8, alignItems: 'center' },
   saveBtnText: { fontSize: 16, fontWeight: '700' },

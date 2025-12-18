@@ -13,6 +13,7 @@ import {
 import { useThemeCtx } from '../theme/ThemeProvider';
 import { supabase } from '../lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
+import { getCurrentCompanyId } from '../lib/company';
 
 interface Category {
   id: string;
@@ -39,7 +40,7 @@ const AVAILABLE_COLORS = [
 ];
 
 export default function CategoriesScreen() {
-  const { theme } = useThemeCtx();
+  const { theme, mode } = useThemeCtx();
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
@@ -58,22 +59,21 @@ export default function CategoriesScreen() {
 
   const loadCategories = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data: company } = await supabase
-        .from('companies')
-        .select('id')
-        .eq('owner_id', user.id)
-        .single();
-
-      if (!company) return;
-      setCompanyId(company.id);
+      // Usar getCurrentCompanyId que funciona para owners e funcionários
+      const currentCompanyId = await getCurrentCompanyId();
+      
+      if (!currentCompanyId) {
+        console.error('Erro: company_id não encontrado');
+        Alert.alert('Erro', 'Não foi possível identificar a empresa. Faça login novamente.');
+        return;
+      }
+      
+      setCompanyId(currentCompanyId);
 
       const { data, error } = await supabase
         .from('categories')
         .select('*')
-        .eq('company_id', company.id)
+        .eq('company_id', currentCompanyId)
         .order('name');
 
       if (error) throw error;
@@ -126,11 +126,27 @@ export default function CategoriesScreen() {
         if (error) throw error;
         Alert.alert('Sucesso', 'Categoria atualizada com sucesso!');
       } else {
-        // Criar nova categoria
+        // Criar nova categoria - garantir que temos um company_id válido
+        let currentCompanyId = companyId;
+        
+        // Se companyId estiver vazio, buscar novamente
+        if (!currentCompanyId) {
+          currentCompanyId = await getCurrentCompanyId() || '';
+        }
+        
+        // Validar UUID antes de enviar
+        if (!currentCompanyId || currentCompanyId.length < 36) {
+          console.error('Company ID inválido:', currentCompanyId);
+          Alert.alert('Erro', 'Não foi possível identificar a empresa. Faça login novamente.');
+          return;
+        }
+        
+        console.log('Criando categoria com company_id:', currentCompanyId);
+        
         const { error } = await supabase
           .from('categories')
           .insert({
-            company_id: companyId,
+            company_id: currentCompanyId,
             name: name.trim(),
             type,
             icon: selectedIcon,
@@ -224,9 +240,9 @@ export default function CategoriesScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <View style={styles.header}>
-        <Text style={[styles.title, { color: theme.text }]}>Minhas Categorias</Text>
-        <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
+      <View style={[styles.header, { alignItems: 'center' }]}>
+        <Text style={[styles.title, { color: mode === 'dark' ? theme.primary : theme.negative, textAlign: 'center' }]}>Minhas Categorias</Text>
+        <Text style={[styles.subtitle, { color: theme.textSecondary, textAlign: 'center' }]}>
           Organize suas receitas e despesas do seu jeito
         </Text>
       </View>
@@ -393,7 +409,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 24,
-    fontWeight: 'bold',
+    fontWeight: '800',
     marginBottom: 8,
   },
   subtitle: {

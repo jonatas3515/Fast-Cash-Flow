@@ -8,6 +8,16 @@ import AdminBroadcastScreen from '../screens/admin/AdminBroadcastScreen';
 import DebtsScreen from '../screens/DebtsScreen';
 import AdminSettingsScreen from '../screens/admin/AdminSettingsScreen';
 import AdminInstructionsScreen from '../screens/admin/AdminInstructionsScreen';
+import AdminAnalyticsScreen from '../screens/admin/AdminAnalyticsScreen';
+import AdminConversionScreen from '../screens/admin/AdminConversionScreen';
+import AdminSupportScreen from '../screens/admin/AdminSupportScreen';
+import AdminFinanceScreen from '../screens/admin/AdminFinanceScreen';
+import AdminDelinquencyScreen from '../screens/admin/AdminDelinquencyScreen';
+import AdminCouponsScreen from '../screens/admin/AdminCouponsScreen';
+import AdminBackupCentralScreen from '../screens/admin/AdminBackupCentralScreen';
+import AdminAuditScreen from '../screens/admin/AdminAuditScreen';
+import AdminEngagementScreen from '../screens/admin/AdminEngagementScreen';
+import LandingSettingsScreen from '../screens/admin/LandingSettingsScreen';
 import CustomAdminDrawerContent from './CustomAdminDrawerContent';
 import { colors } from '../theme';
 import { View, Text, Image, TouchableOpacity, Platform, useWindowDimensions } from 'react-native';
@@ -66,7 +76,7 @@ export default function AdminTabs() {
           }
         }
         setHasAdminOverdueDebts(hasOverdue);
-      } catch {}
+      } catch { }
     })();
   }, []);
 
@@ -78,56 +88,71 @@ export default function AdminTabs() {
       ? 'https://i.im.ge/2025/11/02/nzgjAc.Logo-White.png'
       : 'https://i.im.ge/2025/11/03/nH0whJ.Logo-Black.png';
     const localLogo = mode === 'dark'
-      ? require('../../Logo White.png')
-      : require('../../Logo Black.png');
+      ? require('../../assets/landing/Logo White.png')
+      : require('../../assets/landing/Logo Black.png');
     const nav = useNavigation<DrawerNavigationProp<any>>();
-    
+
+    // Distinct admin header colors
+    const adminHeaderBg = mode === 'dark' ? '#1E1B4B' : '#3730A3'; // Indigo tones
+    const adminBorderColor = mode === 'dark' ? '#4338CA' : '#6366F1';
+
     return (
-      <View style={{ 
-        flexDirection: 'row', 
-        alignItems: 'center', 
+      <View style={{
+        flexDirection: 'row',
+        alignItems: 'center',
         paddingHorizontal: 10,
-        paddingVertical: 6,
-        backgroundColor: theme.card,
-        borderBottomWidth: 1,
-        borderBottomColor: theme.border,
+        paddingVertical: 8,
+        backgroundColor: adminHeaderBg,
+        borderBottomWidth: 2,
+        borderBottomColor: adminBorderColor,
       }}>
         {/* Botão de menu (hambúrguer) - apenas em mobile */}
         {!isWideWeb && (
-          <TouchableOpacity 
+          <TouchableOpacity
             onPress={() => nav.toggleDrawer()}
             style={{ paddingRight: 12 }}
           >
-            <Text style={{ fontSize: 24, color: theme.text }}>☰</Text>
+            <Text style={{ fontSize: 24, color: '#fff' }}>☰</Text>
           </TouchableOpacity>
         )}
-        
+
         {/* Logo e título */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
           {Platform.OS === 'web' ? (
-            // @ts-ignore
-            <img src={webUrl} style={{ width: 40, height: 40, objectFit: 'contain' }} />
+            // @ts-ignore - always use white logo on admin header
+            <img src="https://i.im.ge/2025/11/02/nzgjAc.Logo-White.png" style={{ width: 40, height: 40, objectFit: 'contain' }} />
           ) : (
-            <Image source={localLogo} style={{ width: 40, height: 40, resizeMode: 'contain' }} />
+            <Image source={require('../../assets/landing/Logo White.png')} style={{ width: 40, height: 40, resizeMode: 'contain' }} />
           )}
-          <Text style={{ fontWeight: '800', color: theme.text, lineHeight: 12, fontSize: 10 }}>
+          <Text style={{ fontWeight: '800', color: '#fff', lineHeight: 12, fontSize: 10 }}>
             FAST{"\n"}
             CASH{"\n"}
             FLOW
           </Text>
           <View style={{ flex: 1, alignItems: 'center' }}>
-            <Text style={{ color: theme.text, fontWeight: '700', fontSize: 12 }}>
+            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>
               {title}
             </Text>
-            <Text style={{ color: theme.textSecondary, fontSize: 10 }}>
-              👑 Admin
-            </Text>
+          </View>
+
+          {/* Admin Badge - prominent */}
+          <View style={{
+            backgroundColor: '#FBBF24',
+            paddingHorizontal: 10,
+            paddingVertical: 4,
+            borderRadius: 12,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 4,
+          }}>
+            <Text style={{ fontSize: 12 }}>👑</Text>
+            <Text style={{ color: '#1E1B4B', fontWeight: '800', fontSize: 11 }}>ADMIN</Text>
           </View>
         </View>
 
         {/* Botão de tema - apenas em desktop web */}
         {isWideWeb && (
-          <TouchableOpacity 
+          <TouchableOpacity
             onPress={() => setMode(mode === 'dark' ? 'light' : 'dark')}
             style={{ paddingHorizontal: 12 }}
           >
@@ -140,131 +165,202 @@ export default function AdminTabs() {
 
   return (
     <>
-    <Drawer.Navigator
-      drawerContent={(props) => <CustomAdminDrawerContent {...props} />}
-      screenOptions={{
-        headerShown: true,
-        drawerType: isWideWeb ? 'permanent' : 'front',
-        drawerStyle: {
-          width: isWideWeb ? 240 : width * 0.75,
-          backgroundColor: theme.drawerBackground,
-        },
-        overlayColor: 'rgba(0, 0, 0, 0.5)',
-        drawerPosition: 'left',
-        swipeEnabled: !isWideWeb,
-        swipeEdgeWidth: 50,
-      }}
-    >
-      <Drawer.Screen 
-        name="Dashboard" 
-        component={AdminDashboardScreen}
-        options={{
-          header: () => <CustomAdminHeader title="Dashboard" />,
-        }}
-      />
-      <Drawer.Screen 
-        name="Empresas" 
-        component={AdminCompaniesScreen}
-        options={{
-          header: () => <CustomAdminHeader title="Empresas" />,
-        }}
-      />
-      <Drawer.Screen 
-        name="Solicitações" 
-        component={AdminRequestsScreen}
-        options={{
-          header: () => <CustomAdminHeader title="Solicitações" />,
-        }}
-      />
-      <Drawer.Screen 
-        name="Débitos" 
-        component={DebtsScreen}
-        options={{
-          header: () => <CustomAdminHeader title="Débitos" />,
-        }}
-      />
-      <Drawer.Screen 
-        name="Relatórios" 
-        component={AdminReportsScreen}
-        options={{
-          header: () => <CustomAdminHeader title="Relatórios" />,
-        }}
-      />
-      <Drawer.Screen 
-        name="Comunicados" 
-        component={AdminBroadcastScreen}
-        options={{
-          header: () => <CustomAdminHeader title="Comunicados" />,
-        }}
-      />
-      <Drawer.Screen 
-        name="Configuração" 
-        component={AdminSettingsScreen}
-        options={{
-          header: () => <CustomAdminHeader title="Configurações" />,
-        }}
-      />
-      <Drawer.Screen 
-        name="Instruções" 
-        component={AdminInstructionsScreen}
-        options={{
-          header: () => <CustomAdminHeader title="Instruções" />,
-        }}
-      />
-    </Drawer.Navigator>
-
-    {hasAdminOverdueDebts && !hasSeenAdminOverdueModal && (
-      <View
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.45)',
-          justifyContent: 'center',
-          alignItems: 'center',
-          padding: 24,
+      <Drawer.Navigator
+        id={undefined}
+        drawerContent={(props) => <CustomAdminDrawerContent {...props} />}
+        screenOptions={{
+          headerShown: true,
+          drawerType: isWideWeb ? 'permanent' : 'front',
+          drawerStyle: {
+            width: isWideWeb ? 240 : width * 0.75,
+            backgroundColor: theme.drawerBackground,
+          },
+          overlayColor: 'rgba(0, 0, 0, 0.5)',
+          drawerPosition: 'left',
+          swipeEnabled: !isWideWeb,
+          swipeEdgeWidth: 50,
         }}
       >
+        <Drawer.Screen
+          name="Dashboard"
+          component={AdminDashboardScreen}
+          options={{
+            header: () => <CustomAdminHeader title="Dashboard" />,
+          }}
+        />
+        <Drawer.Screen
+          name="Empresas"
+          component={AdminCompaniesScreen}
+          options={{
+            header: () => <CustomAdminHeader title="Empresas" />,
+          }}
+        />
+        <Drawer.Screen
+          name="Solicitações"
+          component={AdminRequestsScreen}
+          options={{
+            header: () => <CustomAdminHeader title="Solicitações" />,
+          }}
+        />
+        <Drawer.Screen
+          name="Débitos"
+          component={DebtsScreen}
+          options={{
+            header: () => <CustomAdminHeader title="Débitos" />,
+          }}
+        />
+        <Drawer.Screen
+          name="Analytics"
+          component={AdminAnalyticsScreen}
+          options={{
+            header: () => <CustomAdminHeader title="Analytics" />,
+          }}
+        />
+        <Drawer.Screen
+          name="Conversão"
+          component={AdminConversionScreen}
+          options={{
+            header: () => <CustomAdminHeader title="Conversão" />,
+          }}
+        />
+        <Drawer.Screen
+          name="Suporte"
+          component={AdminSupportScreen}
+          options={{
+            header: () => <CustomAdminHeader title="Suporte" />,
+          }}
+        />
+        <Drawer.Screen
+          name="Finanças"
+          component={AdminFinanceScreen}
+          options={{
+            header: () => <CustomAdminHeader title="Finanças" />,
+          }}
+        />
+        <Drawer.Screen
+          name="Inadimplência"
+          component={AdminDelinquencyScreen}
+          options={{
+            header: () => <CustomAdminHeader title="Inadimplência" />,
+          }}
+        />
+        <Drawer.Screen
+          name="Cupons"
+          component={AdminCouponsScreen}
+          options={{
+            header: () => <CustomAdminHeader title="Cupons" />,
+          }}
+        />
+        <Drawer.Screen
+          name="Backup Central"
+          component={AdminBackupCentralScreen}
+          options={{
+            header: () => <CustomAdminHeader title="Backup Central" />,
+          }}
+        />
+        <Drawer.Screen
+          name="Auditoria"
+          component={AdminAuditScreen}
+          options={{
+            header: () => <CustomAdminHeader title="Auditoria" />,
+          }}
+        />
+        <Drawer.Screen
+          name="Relatórios"
+          component={AdminReportsScreen}
+          options={{
+            header: () => <CustomAdminHeader title="Relatórios" />,
+          }}
+        />
+        <Drawer.Screen
+          name="Comunicados"
+          component={AdminBroadcastScreen}
+          options={{
+            header: () => <CustomAdminHeader title="Comunicados" />,
+          }}
+        />
+        <Drawer.Screen
+          name="Configuração"
+          component={AdminSettingsScreen}
+          options={{
+            header: () => <CustomAdminHeader title="Configurações" />,
+          }}
+        />
+        <Drawer.Screen
+          name="Instruções"
+          component={AdminInstructionsScreen}
+          options={{
+            header: () => <CustomAdminHeader title="Instruções" />,
+          }}
+        />
+        <Drawer.Screen
+          name="LandingSettings"
+          component={LandingSettingsScreen}
+          options={{
+            header: () => <CustomAdminHeader title="Landing Page" />,
+          }}
+        />
+        <Drawer.Screen
+          name="Engajamento"
+          component={AdminEngagementScreen}
+          options={{
+            header: () => <CustomAdminHeader title="Engajamento" />,
+          }}
+        />
+      </Drawer.Navigator>
+
+      {hasAdminOverdueDebts && !hasSeenAdminOverdueModal && (
         <View
           style={{
-            width: '100%',
-            maxWidth: 420,
-            backgroundColor: theme.card,
-            borderRadius: 16,
-            padding: 20,
-            borderWidth: 1,
-            borderColor: '#f97316',
-            gap: 12,
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.45)',
+            justifyContent: 'center',
+            alignItems: 'center',
+            padding: 24,
           }}
         >
-          <Text style={{ color: '#b45309', fontWeight: '800', fontSize: 16, textAlign: 'center' }}>
-            ⚠️ Existem parcelas em atraso
-          </Text>
-          <Text style={{ color: theme.text, fontSize: 13, textAlign: 'center' }}>
-            Confirme os pagamentos das parcelas em atraso na aba Débitos da empresa administradora para manter os relatórios em dia.
-          </Text>
-          <TouchableOpacity
-            onPress={() => {
-              setHasSeenAdminOverdueModal(true);
-              // @ts-ignore
-              navigation.navigate('Débitos');
-            }}
+          <View
             style={{
-              marginTop: 4,
-              alignSelf: 'center',
-              paddingHorizontal: 18,
-              paddingVertical: 10,
-              borderRadius: 999,
-              backgroundColor: '#f97316',
+              width: '100%',
+              maxWidth: 420,
+              backgroundColor: theme.card,
+              borderRadius: 16,
+              padding: 20,
+              borderWidth: 1,
+              borderColor: '#f97316',
+              gap: 12,
             }}
           >
-            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Ir para a aba Débitos</Text>
-          </TouchableOpacity>
+            <Text style={{ color: '#b45309', fontWeight: '800', fontSize: 16, textAlign: 'center' }}>
+              ⚠️ Existem parcelas em atraso
+            </Text>
+            <Text style={{ color: theme.text, fontSize: 13, textAlign: 'center' }}>
+              Confirme os pagamentos das parcelas em atraso na aba Débitos da empresa administradora para manter os relatórios em dia.
+            </Text>
+            <TouchableOpacity
+              onPress={() => {
+                setHasSeenAdminOverdueModal(true);
+                // @ts-ignore
+                navigation.navigate('Débitos');
+              }}
+              style={{
+                marginTop: 4,
+                alignSelf: 'center',
+                paddingHorizontal: 18,
+                paddingVertical: 10,
+                borderRadius: 999,
+                backgroundColor: '#f97316',
+              }}
+            >
+              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Ir para a aba Débitos</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
-    )}
+      )}
     </>
   );
 }

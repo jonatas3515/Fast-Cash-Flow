@@ -9,13 +9,13 @@ import * as ImagePicker from 'expo-image-picker';
 import { useI18n } from '../i18n/I18nProvider';
 import { useNavigation } from '@react-navigation/native';
 import ScreenTitle from '../components/ScreenTitle';
-import { 
-  getCompanyProfile, 
-  updateCompanyProfile, 
-  BUSINESS_TYPE_OPTIONS, 
-  REVENUE_RANGE_OPTIONS, 
+import {
+  getCompanyProfile,
+  updateCompanyProfile,
+  BUSINESS_TYPE_OPTIONS,
+  REVENUE_RANGE_OPTIONS,
   MAIN_GOAL_OPTIONS,
-  type CompanyProfile 
+  type CompanyProfile
 } from '../repositories/company_profile';
 import { getCurrentCompanyId } from '../lib/company';
 
@@ -25,6 +25,8 @@ export default function SettingsScreen() {
   const { theme } = useThemeCtx();
   const { settings, setLogoUrl } = useSettings();
   const [logo, setLogo] = React.useState(settings.logoUrl || '');
+  const [companyEmail, setCompanyEmail] = React.useState('');
+  const [savingEmail, setSavingEmail] = React.useState(false);
   const toast = useToast();
   const { lang, setLang, currency, setCurrency } = useI18n();
   const [newPass, setNewPass] = React.useState('');
@@ -41,16 +43,93 @@ export default function SettingsScreen() {
   const [showRevenueDropdown, setShowRevenueDropdown] = React.useState(false);
   const [showGoalDropdown, setShowGoalDropdown] = React.useState(false);
 
+  // Dados do Cupom Fiscal
+  const [ownerName, setOwnerName] = React.useState('');
+  const [companyAddress, setCompanyAddress] = React.useState('');
+  const [savingReceiptInfo, setSavingReceiptInfo] = React.useState(false);
+
   // Carregar perfil do negócio ao iniciar
   React.useEffect(() => {
     loadCompanyProfile();
+    loadCompanyEmail();
   }, []);
+
+  const loadCompanyEmail = async () => {
+    try {
+      const companyId = await getCurrentCompanyId();
+      if (!companyId) return;
+
+      const { data, error } = await supabase
+        .from('companies')
+        .select('email, owner_name, address')
+        .eq('id', companyId)
+        .single();
+
+      if (!error && data) {
+        if (data.email) setCompanyEmail(data.email);
+        if (data.owner_name) setOwnerName(data.owner_name);
+        if (data.address) setCompanyAddress(data.address);
+      }
+    } catch (error) {
+      console.error('Erro ao carregar dados:', error);
+    }
+  };
+
+  const saveCompanyEmail = async () => {
+    try {
+      setSavingEmail(true);
+      const companyId = await getCurrentCompanyId();
+      if (!companyId) throw new Error('Empresa não identificada');
+
+      const { error } = await supabase
+        .from('companies')
+        .update({ email: companyEmail })
+        .eq('id', companyId);
+
+      if (error) throw error;
+
+      toast.show('Email da empresa atualizado!', 'success');
+    } catch (error: any) {
+      toast.show('Erro ao salvar email: ' + error.message, 'error');
+    } finally {
+      setSavingEmail(false);
+    }
+  };
+
+  const saveReceiptInfo = async () => {
+    try {
+      setSavingReceiptInfo(true);
+      const companyId = await getCurrentCompanyId();
+      console.log('Salvando dados do cupom:', { companyId, ownerName, companyAddress }); // Debug
+      if (!companyId) throw new Error('Empresa não identificada');
+
+      const { data, error } = await supabase
+        .from('companies')
+        .update({
+          owner_name: ownerName,
+          address: companyAddress
+        })
+        .eq('id', companyId)
+        .select();
+
+      console.log('Resultado do update:', { data, error }); // Debug
+
+      if (error) throw error;
+
+      toast.show('Dados do cupom atualizados!', 'success');
+    } catch (error: any) {
+      console.error('Erro ao salvar dados do cupom:', error); // Debug
+      toast.show('Erro ao salvar: ' + error.message, 'error');
+    } finally {
+      setSavingReceiptInfo(false);
+    }
+  };
 
   const loadCompanyProfile = async () => {
     try {
       const companyId = await getCurrentCompanyId();
       if (!companyId) return;
-      
+
       const profile = await getCompanyProfile(companyId);
       setCompanyProfile(profile);
     } catch (error) {
@@ -60,18 +139,18 @@ export default function SettingsScreen() {
 
   const saveCompanyProfile = async () => {
     if (!companyProfile) return;
-    
+
     try {
       setSavingProfile(true);
       const companyId = await getCurrentCompanyId();
       if (!companyId) throw new Error('Empresa não identificada');
-      
+
       await updateCompanyProfile(companyId, {
         business_type: companyProfile.business_type,
         monthly_revenue_range: companyProfile.monthly_revenue_range,
         main_goal: companyProfile.main_goal,
       });
-      
+
       toast.show('Perfil do negócio atualizado com sucesso!', 'success');
     } catch (error: any) {
       toast.show('Erro ao salvar perfil: ' + error.message, 'error');
@@ -88,7 +167,7 @@ export default function SettingsScreen() {
   const changePassword = async () => {
     try {
       setChanging(true);
-      const name = (typeof window !== 'undefined' ? (window.sessionStorage.getItem('auth_name') || '') : '').toLowerCase();
+      const name = (typeof window !== 'undefined' ? (window.localStorage.getItem('auth_name') || '') : '').toLowerCase();
       if (!name) { toast.show('Não autenticado', 'error'); return; }
       // Encontrar empresa pelo nome
       const { data: comp, error: cErr } = await supabase.from('companies').select('id,name,last_password_change').ilike('name', name).maybeSingle();
@@ -98,7 +177,7 @@ export default function SettingsScreen() {
       if (comp.last_password_change) {
         const last = new Date(comp.last_password_change);
         const now = new Date();
-        const diffDays = Math.floor((now.getTime() - last.getTime()) / (1000*60*60*24));
+        const diffDays = Math.floor((now.getTime() - last.getTime()) / (1000 * 60 * 60 * 24));
         if (diffDays < 30) { toast.show(`Você só pode alterar a senha a cada 30 dias. Restam ${30 - diffDays} dias.`, 'error'); return; }
       }
       if (!newPass || newPass.length < 4) { toast.show('Informe uma nova senha (mínimo 4 caracteres)', 'error'); return; }
@@ -108,7 +187,7 @@ export default function SettingsScreen() {
         .eq('approved_company_id', comp.id)
         .eq('approved', true);
       if (upReqErr) throw upReqErr;
-      const today = new Date().toISOString().slice(0,10);
+      const today = new Date().toISOString().slice(0, 10);
       const { error: upCompErr } = await supabase.from('companies').update({ last_password_change: today }).eq('id', comp.id);
       if (upCompErr) throw upCompErr;
       toast.show('Senha alterada com sucesso!', 'success');
@@ -121,9 +200,9 @@ export default function SettingsScreen() {
   };
   return (
     <ScrollView style={[styles.container, { backgroundColor: theme.background }]} contentContainerStyle={{ paddingBottom: 32 }}>
-      <ScreenTitle 
-        title="Configurações" 
-        subtitle="Personalize seu app" 
+      <ScreenTitle
+        title="Configurações"
+        subtitle="Personalize seu app"
       />
       {/* Removed duplicate theme toggle; header has the theme switch */}
       <View style={{ gap: 4 }}>
@@ -146,7 +225,7 @@ export default function SettingsScreen() {
             <Text style={[styles.prettyBtnText, { color: '#fff' }]}>{useI18n().t('save_logo')}</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.prettyBtn, styles.prettyBtnWide, { backgroundColor: '#D90429' }]}
+            style={[styles.prettyBtn, styles.prettyBtnWide, { backgroundColor: theme.secondary }]}
             onPress={async () => {
               const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
               if (perm.status !== 'granted') {
@@ -166,8 +245,84 @@ export default function SettingsScreen() {
           >
             <Text style={styles.prettyBtnText}>{useI18n().t('pick_gallery')}</Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.prettyBtn, styles.prettyBtnWide, { backgroundColor: theme.warning }]}
+            onPress={async () => {
+              // Restaurar logo padrão do sistema (limpa a logo personalizada)
+              setLogo('');
+              await setLogoUrl(null);
+              toast.show('Logo restaurada para o padrão do sistema', 'success');
+            }}
+          >
+            <Text style={[styles.prettyBtnText, { color: '#000' }]}>Restaurar Logo Padrão</Text>
+          </TouchableOpacity>
         </View>
       </View>
+
+      {/* Email da Empresa */}
+      <View style={{ gap: 4, marginTop: 16 }}>
+        <Text style={{ color: theme.text, fontSize: 12, fontWeight: '600' }}>📧 Email da Empresa</Text>
+        <Text style={{ color: theme.textSecondary, fontSize: 11, marginBottom: 4 }}>
+          Este email será exibido no menu lateral
+        </Text>
+        <TextInput
+          value={companyEmail}
+          onChangeText={setCompanyEmail}
+          placeholder="contato@suaempresa.com.br"
+          placeholderTextColor="#999"
+          keyboardType="email-address"
+          autoCapitalize="none"
+          style={[styles.input, { color: theme.text, backgroundColor: theme.card }]}
+        />
+        <TouchableOpacity
+          disabled={savingEmail}
+          onPress={saveCompanyEmail}
+          style={[styles.prettyBtn, styles.prettyBtnWide, { backgroundColor: '#16A34A', alignSelf: 'flex-start' }]}
+        >
+          <Text style={styles.prettyBtnText}>{savingEmail ? 'Salvando...' : 'Salvar Email'}</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Dados para Cupom Fiscal */}
+      <View style={{ gap: 8, marginTop: 20, padding: 16, backgroundColor: theme.card, borderRadius: 12 }}>
+        <Text style={{ color: theme.text, fontWeight: '700', fontSize: 16, marginBottom: 4 }}>🧾 Dados do Cupom Fiscal</Text>
+        <Text style={{ color: '#888', fontSize: 12, marginBottom: 8 }}>
+          Esses dados serão exibidos no Cupom Não Fiscal emitido pelo sistema.
+        </Text>
+
+        <View style={{ gap: 4 }}>
+          <Text style={{ color: theme.text, fontSize: 12, fontWeight: '600' }}>Nome do Proprietário</Text>
+          <TextInput
+            value={ownerName}
+            onChangeText={setOwnerName}
+            placeholder="Ex: João da Silva"
+            placeholderTextColor="#999"
+            style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
+          />
+        </View>
+
+        <View style={{ gap: 4, marginTop: 8 }}>
+          <Text style={{ color: theme.text, fontSize: 12, fontWeight: '600' }}>Endereço Completo</Text>
+          <TextInput
+            value={companyAddress}
+            onChangeText={setCompanyAddress}
+            placeholder="Ex: Rua das Flores, 123 - Centro - São Paulo/SP"
+            placeholderTextColor="#999"
+            multiline
+            numberOfLines={2}
+            style={[styles.input, { color: theme.text, backgroundColor: theme.background, minHeight: 60, textAlignVertical: 'top' }]}
+          />
+        </View>
+
+        <TouchableOpacity
+          disabled={savingReceiptInfo}
+          onPress={saveReceiptInfo}
+          style={[styles.prettyBtn, styles.prettyBtnWide, { backgroundColor: '#16A34A', alignSelf: 'flex-start', marginTop: 12 }]}
+        >
+          <Text style={styles.prettyBtnText}>{savingReceiptInfo ? 'Salvando...' : 'Salvar Dados do Cupom'}</Text>
+        </TouchableOpacity>
+      </View>
+
       <View style={{ gap: 6, marginTop: 12 }}>
         <Text style={{ color: theme.text, fontWeight: '700', fontSize: 14 }}>Alterar senha</Text>
         <TextInput value={newPass} onChangeText={setNewPass} placeholder="Nova senha" placeholderTextColor="#999" secureTextEntry style={[styles.input, { color: theme.text, backgroundColor: theme.card }]} />
@@ -176,166 +331,44 @@ export default function SettingsScreen() {
         </TouchableOpacity>
         <Text style={{ color: '#888' }}>Regra: apenas 1 alteração a cada 30 dias.</Text>
       </View>
+      {/* Configuração de Impressora */}
       <View style={{ gap: 6, marginTop: 14 }}>
-        <Text style={{ color: theme.text, fontWeight: '700', fontSize: 14 }}>Metas financeiras mensais</Text>
+        <Text style={{ color: theme.text, fontWeight: '700', fontSize: 14 }}>🖨️ Configuração de Impressora</Text>
         <Text style={{ color: '#888', fontSize: 12 }}>
-          Use o Dashboard para definir e acompanhar a meta de faturamento do mês.
+          Configure a impressora para imprimir cupons fiscais e relatórios.
         </Text>
         <TouchableOpacity
-          onPress={() => navigation.navigate('Dashboard')}
-          style={[styles.prettyBtn, styles.prettyBtnWide, { backgroundColor: '#16A34A', alignSelf: 'flex-start' }]}
+          onPress={async () => {
+            if (Platform.OS === 'web') {
+              // Na web, usa o diálogo de impressão nativo do navegador
+              toast.show('Na versão web, use Ctrl+P ou o botão de impressão em cada relatório/cupom.', 'info');
+            } else {
+              // No mobile, mostra opções de configuração
+              toast.show('Use a opção de impressão diretamente nos cupons e relatórios.', 'info');
+            }
+          }}
+          style={[styles.prettyBtn, styles.prettyBtnWide, { backgroundColor: '#6366F1', alignSelf: 'flex-start' }]}
         >
-          <Text style={styles.prettyBtnText}>Ir para Meta Mensal</Text>
+          <Text style={styles.prettyBtnText}>Testar Impressão</Text>
         </TouchableOpacity>
+        <Text style={{ color: '#666', fontSize: 10, marginTop: 4 }}>
+          💡 Dica: Na web, o navegador detecta automaticamente as impressoras instaladas no seu computador.
+        </Text>
       </View>
 
-      {/* Seção Perfil do Negócio */}
-      <View style={{ gap: 8, marginTop: 20, padding: 16, backgroundColor: theme.card, borderRadius: 12 }}>
-        <Text style={{ color: theme.text, fontWeight: '700', fontSize: 16, marginBottom: 8 }}>📊 Perfil do Negócio</Text>
-        <Text style={{ color: '#888', fontSize: 12, marginBottom: 16 }}>
-          Personalize sua experiência com base no seu tipo de negócio e objetivos.
-        </Text>
-
-        {/* Tipo de Negócio */}
-        <View style={{ gap: 4 }}>
-          <Text style={{ color: theme.text, fontSize: 14, fontWeight: '600' }}>Tipo de Negócio</Text>
-          <TouchableOpacity
-            style={[styles.input, { 
-              backgroundColor: theme.input, 
-              borderColor: theme.inputBorder,
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center'
-            }]}
-            onPress={() => setShowBusinessTypeDropdown(!showBusinessTypeDropdown)}
-          >
-            <Text style={{ color: theme.text }}>
-              {companyProfile ? BUSINESS_TYPE_OPTIONS.find(opt => opt.value === companyProfile.business_type)?.label : 'Selecione...'}
-            </Text>
-            <Text style={{ color: '#888' }}>▼</Text>
-          </TouchableOpacity>
-          
-          {showBusinessTypeDropdown && (
-            <View style={[styles.dropdown, { backgroundColor: theme.card, borderColor: theme.inputBorder }]}>
-              {BUSINESS_TYPE_OPTIONS.map((option) => (
-                <TouchableOpacity
-                  key={option.value}
-                  style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' }}
-                  onPress={() => {
-                    updateProfileField('business_type', option.value);
-                    setShowBusinessTypeDropdown(false);
-                  }}
-                >
-                  <Text style={{ 
-                    color: companyProfile?.business_type === option.value ? '#16A34A' : theme.text,
-                    fontWeight: companyProfile?.business_type === option.value ? '700' : '500'
-                  }}>
-                    {option.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
-        </View>
-
-        {/* Faturamento Médio */}
-        <View style={{ gap: 4, marginTop: 12 }}>
-          <Text style={{ color: theme.text, fontSize: 14, fontWeight: '600' }}>Faturamento Médio Mensal</Text>
-          <TouchableOpacity
-            style={[styles.input, { 
-              backgroundColor: theme.input, 
-              borderColor: theme.inputBorder,
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center'
-            }]}
-            onPress={() => setShowRevenueDropdown(!showRevenueDropdown)}
-          >
-            <Text style={{ color: theme.text }}>
-              {companyProfile ? REVENUE_RANGE_OPTIONS.find(opt => opt.value === companyProfile.monthly_revenue_range)?.label : 'Selecione...'}
-            </Text>
-            <Text style={{ color: '#888' }}>▼</Text>
-          </TouchableOpacity>
-          
-          {showRevenueDropdown && (
-            <View style={[styles.dropdown, { backgroundColor: theme.card, borderColor: theme.inputBorder }]}>
-              {REVENUE_RANGE_OPTIONS.map((option) => (
-                <TouchableOpacity
-                  key={option.value}
-                  style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' }}
-                  onPress={() => {
-                    updateProfileField('monthly_revenue_range', option.value);
-                    setShowRevenueDropdown(false);
-                  }}
-                >
-                  <Text style={{ 
-                    color: companyProfile?.monthly_revenue_range === option.value ? '#16A34A' : theme.text,
-                    fontWeight: companyProfile?.monthly_revenue_range === option.value ? '700' : '500'
-                  }}>
-                    {option.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
-        </View>
-
-        {/* Objetivo Principal */}
-        <View style={{ gap: 4, marginTop: 12 }}>
-          <Text style={{ color: theme.text, fontSize: 14, fontWeight: '600' }}>Objetivo Principal</Text>
-          <TouchableOpacity
-            style={[styles.input, { 
-              backgroundColor: theme.input, 
-              borderColor: theme.inputBorder,
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center'
-            }]}
-            onPress={() => setShowGoalDropdown(!showGoalDropdown)}
-          >
-            <Text style={{ color: theme.text }}>
-              {companyProfile ? MAIN_GOAL_OPTIONS.find(opt => opt.value === companyProfile.main_goal)?.label : 'Selecione...'}
-            </Text>
-            <Text style={{ color: '#888' }}>▼</Text>
-          </TouchableOpacity>
-          
-          {showGoalDropdown && (
-            <View style={[styles.dropdown, { backgroundColor: theme.card, borderColor: theme.inputBorder }]}>
-              {MAIN_GOAL_OPTIONS.map((option) => (
-                <TouchableOpacity
-                  key={option.value}
-                  style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' }}
-                  onPress={() => {
-                    updateProfileField('main_goal', option.value);
-                    setShowGoalDropdown(false);
-                  }}
-                >
-                  <Text style={{ 
-                    color: companyProfile?.main_goal === option.value ? '#16A34A' : theme.text,
-                    fontWeight: companyProfile?.main_goal === option.value ? '700' : '500'
-                  }}>
-                    {option.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
-        </View>
-
-        <TouchableOpacity
-          disabled={savingProfile || !companyProfile}
-          onPress={saveCompanyProfile}
-          style={[styles.prettyBtn, styles.prettyBtnWide, { 
-            backgroundColor: savingProfile || !companyProfile ? '#6b7280' : '#16A34A', 
-            alignSelf: 'flex-start',
-            marginTop: 16
-          }]}
-        >
-          <Text style={styles.prettyBtnText}>
-            {savingProfile ? 'Salvando...' : 'Salvar Perfil'}
+      {/* Link para Perfil do Negócio */}
+      <TouchableOpacity
+        onPress={() => navigation.navigate('PerfilNegocio')}
+        style={{ gap: 8, marginTop: 20, padding: 16, backgroundColor: theme.card, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: theme.text, fontWeight: '700', fontSize: 14 }}>📊 Perfil do Negócio</Text>
+          <Text style={{ color: '#888', fontSize: 12, marginTop: 4 }}>
+            Personalize categorias, dicas e recomendações
           </Text>
-        </TouchableOpacity>
-      </View>
+        </View>
+        <Text style={{ color: '#888', fontSize: 18 }}>→</Text>
+      </TouchableOpacity>
 
       <View style={{ gap: 8 }}>
         <Text style={{ color: dark ? '#bbb' : '#666' }}>{useI18n().t('language')}</Text>
@@ -364,9 +397,9 @@ const styles = StyleSheet.create({
   prettyBtn: { paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, alignItems: 'center' },
   prettyBtnWide: { minWidth: 180 },
   prettyBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  dropdown: { 
-    borderWidth: 1, 
-    borderRadius: 8, 
+  dropdown: {
+    borderWidth: 1,
+    borderRadius: 8,
     marginTop: 4,
     maxHeight: 150,
     zIndex: 1000,

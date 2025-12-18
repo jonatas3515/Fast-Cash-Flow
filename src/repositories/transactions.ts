@@ -1,7 +1,9 @@
 import { getDb } from '../lib/db';
 import { getCurrentCompanyId } from '../lib/company';
+import { Platform } from 'react-native';
 
 export type TxType = 'income' | 'expense';
+export type ExpenseType = 'operational' | 'withdrawal';
 
 export type Transaction = {
   id: string;
@@ -11,6 +13,8 @@ export type Transaction = {
   datetime: string; // ISO
   description?: string;
   category?: string;
+  clientname?: string; // Nome do cliente (para entradas)
+  expensetype?: ExpenseType; // Tipo de saída: operational (despesa) ou withdrawal (retirada de sócio)
   amount_cents: number;
   source_device?: string;
   version: number;
@@ -136,6 +140,64 @@ export async function getYearlyMonthlySeries(year: number): Promise<{ month: num
   return monthsData;
 }
 
+// Função para calcular série trimestral do ano
+export async function getYearlyQuarterlySeries(year: number): Promise<{ quarter: number; quarterName: string; income_cents: number; expense_cents: number; }[]> {
+  const quarterNames = ['T1', 'T2', 'T3', 'T4'];
+  const quartersData = [];
+  
+  for (let quarter = 1; quarter <= 4; quarter++) {
+    const startMonth = (quarter - 1) * 3 + 1;
+    const endMonth = quarter * 3;
+    
+    let totalIncome = 0;
+    let totalExpense = 0;
+    
+    for (let month = startMonth; month <= endMonth; month++) {
+      const { income_cents, expense_cents } = await getMonthlyTotals(year, month);
+      totalIncome += income_cents;
+      totalExpense += expense_cents;
+    }
+    
+    quartersData.push({
+      quarter,
+      quarterName: quarterNames[quarter - 1],
+      income_cents: totalIncome,
+      expense_cents: totalExpense,
+    });
+  }
+  
+  return quartersData;
+}
+
+// Função para calcular série semestral do ano
+export async function getYearlySemesterSeries(year: number): Promise<{ semester: number; semesterName: string; income_cents: number; expense_cents: number; }[]> {
+  const semesterNames = ['1º Sem', '2º Sem'];
+  const semestersData = [];
+  
+  for (let semester = 1; semester <= 2; semester++) {
+    const startMonth = (semester - 1) * 6 + 1;
+    const endMonth = semester * 6;
+    
+    let totalIncome = 0;
+    let totalExpense = 0;
+    
+    for (let month = startMonth; month <= endMonth; month++) {
+      const { income_cents, expense_cents } = await getMonthlyTotals(year, month);
+      totalIncome += income_cents;
+      totalExpense += expense_cents;
+    }
+    
+    semestersData.push({
+      semester,
+      semesterName: semesterNames[semester - 1],
+      income_cents: totalIncome,
+      expense_cents: totalExpense,
+    });
+  }
+  
+  return semestersData;
+}
+
 function nowISO() {
   return new Date().toISOString();
 }
@@ -164,10 +226,17 @@ export async function createTransaction(input: Omit<Transaction, 'id' | 'version
       safeDatetime = base.toISOString();
     } catch { safeDatetime = updated_at; }
   }
+  console.log('[📝 CREATE] Inserindo transação no banco local...');
+  console.log('[📝 CREATE] ID:', id);
+  console.log('[📝 CREATE] Company ID:', company_id);
+  console.log('[📝 CREATE] Type:', input.type);
+  console.log('[📝 CREATE] Amount:', input.amount_cents);
+  console.log('[📝 CREATE] Platform:', Platform.OS);
+  
   await db.runAsync(
     `INSERT INTO transactions_local (
-      id, type, date, time, datetime, description, category, amount_cents, source_device, version, updated_at, deleted_at, dirty, company_id
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?)`,
+      id, type, date, time, datetime, description, category, clientname, expensetype, amount_cents, source_device, version, updated_at, deleted_at, dirty, company_id
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)`,
     id,
     input.type,
     input.date,
@@ -175,6 +244,8 @@ export async function createTransaction(input: Omit<Transaction, 'id' | 'version
     safeDatetime,
     input.description ?? null,
     input.category ?? null,
+    (input as any).clientname ?? null,
+    (input as any).expensetype ?? 'operational',
     input.amount_cents,
     input.source_device ?? null,
     version,
@@ -185,6 +256,14 @@ export async function createTransaction(input: Omit<Transaction, 'id' | 'version
   
   console.log('[✅ CREATE] Transação criada com ID:', id);
   console.log('[✅ CREATE] Marcada como dirty=1 para sincronização');
+  
+  // Verificar se foi realmente salva
+  try {
+    const saved = await db.getFirstAsync<any>(`SELECT id, dirty, company_id FROM transactions_local WHERE id = ?`, id);
+    console.log('[🔍 CREATE] Verificação pós-insert:', saved ? JSON.stringify(saved) : 'NÃO ENCONTRADA');
+  } catch (e) {
+    console.warn('[⚠️ CREATE] Erro ao verificar insert:', e);
+  }
   
   // Tentar sincronizar imediatamente
   try {
@@ -204,7 +283,7 @@ export async function updateTransaction(id: string, patch: Partial<Omit<Transact
   // Build dynamic set clause
   const fields: string[] = [];
   const values: any[] = [];
-  const allowed: (keyof Transaction)[] = ['type','date','time','datetime','description','category','amount_cents','source_device','deleted_at'];
+  const allowed: (keyof Transaction)[] = ['type','date','time','datetime','description','category','clientname','expensetype','amount_cents','source_device','deleted_at'];
   for (const key of allowed) {
     if (key in patch) {
       fields.push(`${key} = ?`);

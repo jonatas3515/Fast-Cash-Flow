@@ -26,7 +26,7 @@ export const ModernButton: React.FC<ModernButtonProps> = ({
   const { theme } = useThemeCtx();
 
   const getBackgroundColor = () => {
-    if (disabled) return '#9CA3AF';
+    if (disabled) return theme.textSecondary;
     switch (variant) {
       case 'primary':
         return theme.primary;

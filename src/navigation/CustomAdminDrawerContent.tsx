@@ -8,11 +8,31 @@ import {
   ScrollView,
   Platform,
   useWindowDimensions,
+  LayoutAnimation,
+  UIManager,
 } from 'react-native';
 import { DrawerContentScrollView, DrawerContentComponentProps } from '@react-navigation/drawer';
 import { useThemeCtx } from '../theme/ThemeProvider';
 import { supabase } from '../lib/supabase';
 import * as SecureStore from 'expo-secure-store';
+
+// Habilitar LayoutAnimation no Android
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+interface MenuItem {
+  name: string;
+  label: string;
+  icon: string;
+}
+
+interface MenuSection {
+  key: string;
+  label: string;
+  icon: string;
+  items: MenuItem[];
+}
 
 interface DrawerItemProps {
   label: string;
@@ -20,14 +40,16 @@ interface DrawerItemProps {
   onPress: () => void;
   isActive: boolean;
   theme: any;
+  isSubItem?: boolean;
 }
 
-const DrawerItem: React.FC<DrawerItemProps> = ({ label, icon, onPress, isActive, theme }) => {
+const DrawerItem: React.FC<DrawerItemProps> = ({ label, icon, onPress, isActive, theme, isSubItem = false }) => {
   return (
     <TouchableOpacity
       onPress={onPress}
       style={[
         styles.drawerItem,
+        isSubItem && styles.subItem,
         {
           backgroundColor: isActive ? theme.drawerActiveBackground : 'transparent',
           borderLeftWidth: isActive ? 4 : 0,
@@ -36,10 +58,11 @@ const DrawerItem: React.FC<DrawerItemProps> = ({ label, icon, onPress, isActive,
       ]}
       activeOpacity={0.7}
     >
-      <Text style={[styles.drawerIcon, { color: theme.text }]}>{icon}</Text>
+      <Text style={[styles.drawerIcon, isSubItem && styles.subItemIcon, { color: theme.text }]}>{icon}</Text>
       <Text
         style={[
           styles.drawerLabel,
+          isSubItem && styles.subItemLabel,
           {
             color: theme.text,
             fontWeight: isActive ? '700' : '500',
@@ -52,6 +75,55 @@ const DrawerItem: React.FC<DrawerItemProps> = ({ label, icon, onPress, isActive,
   );
 };
 
+// Componente de seção colapsável
+const CollapsibleSection: React.FC<{
+  section: MenuSection;
+  isExpanded: boolean;
+  onToggle: () => void;
+  currentRoute: string;
+  theme: any;
+  onNavigate: (name: string) => void;
+}> = ({ section, isExpanded, onToggle, currentRoute, theme, onNavigate }) => {
+  const hasActiveItem = section.items.some(item => item.name === currentRoute);
+
+  return (
+    <View style={styles.sectionContainer}>
+      <TouchableOpacity
+        onPress={onToggle}
+        style={[
+          styles.sectionHeader,
+          hasActiveItem && { backgroundColor: theme.drawerActiveBackground + '40' },
+        ]}
+        activeOpacity={0.7}
+      >
+        <Text style={[styles.sectionIcon, { color: theme.text }]}>{section.icon}</Text>
+        <Text style={[styles.sectionLabel, { color: theme.text, fontWeight: hasActiveItem ? '700' : '600' }]}>
+          {section.label}
+        </Text>
+        <Text style={[styles.expandIcon, { color: theme.textSecondary }]}>
+          {isExpanded ? '▼' : '▶'}
+        </Text>
+      </TouchableOpacity>
+
+      {isExpanded && (
+        <View style={styles.sectionItems}>
+          {section.items.map(item => (
+            <DrawerItem
+              key={item.name}
+              label={item.label}
+              icon={item.icon}
+              isActive={currentRoute === item.name}
+              theme={theme}
+              isSubItem
+              onPress={() => onNavigate(item.name)}
+            />
+          ))}
+        </View>
+      )}
+    </View>
+  );
+};
+
 export default function CustomAdminDrawerContent(props: DrawerContentComponentProps) {
   const { theme, mode, setMode } = useThemeCtx();
   const { width } = useWindowDimensions();
@@ -61,28 +133,64 @@ export default function CustomAdminDrawerContent(props: DrawerContentComponentPr
   const currentRoute = props.state.routes[props.state.index].name;
 
   const logout = async () => {
+    console.log('[🚪 LOGOUT] Iniciando logout admin...');
     try {
+      // Limpar storage COMPLETAMENTE primeiro
       if (Platform.OS === 'web') {
         try {
-          window.sessionStorage.removeItem('auth_ok');
-          window.sessionStorage.removeItem('auth_role');
-        } catch {}
+          // Limpar TODOS os storages
+          window.sessionStorage.clear(); // Session storage
+          window.localStorage.clear(); // Local storage
+
+          // Limpar cookies se existirem
+          document.cookie.split(";").forEach(cookie => {
+            const eqPos = cookie.indexOf("=");
+            const name = eqPos > -1 ? cookie.substr(0, eqPos) : cookie;
+            document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/";
+            document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=" + window.location.hostname;
+          });
+
+          // Limpar IndexedDB se possível
+          if (window.indexedDB) {
+            const databases = await indexedDB.databases();
+            databases.forEach(db => {
+              if (db.name) {
+                indexedDB.deleteDatabase(db.name);
+              }
+            });
+          }
+
+          console.log('[✅ LOGOUT] Storage web limpo completamente');
+        } catch (e) {
+          console.warn('[⚠️ LOGOUT] Erro ao limpar storage web:', e);
+        }
       } else {
         await SecureStore.deleteItemAsync('auth_ok');
         await SecureStore.deleteItemAsync('auth_role');
+        await SecureStore.deleteItemAsync('auth_company_id');
       }
+
+      // Fazer signOut do Supabase
       await supabase.auth.signOut();
-    } finally {
+      console.log('[✅ LOGOUT] SignOut concluído');
+
+      // Forçar reload COMPLETO IMEDIATAMENTE na web
       if (Platform.OS === 'web') {
-        try {
-          window.location.reload();
-        } catch {}
+        console.log('[🔄 LOGOUT] Recarregando página completamente...');
+        // Usar uma abordagem mais agressiva para garantir reload completo
+        window.location.replace(window.location.origin);
+      }
+    } catch (error) {
+      console.error('[❌ LOGOUT] Erro:', error);
+      // Mesmo com erro, forçar reload na web
+      if (Platform.OS === 'web') {
+        window.location.replace(window.location.origin);
       }
     }
   };
 
   const [userEmail, setUserEmail] = React.useState('admin@email.com');
-  
+
   React.useEffect(() => {
     try {
       // Obter email do usuário logado
@@ -91,25 +199,109 @@ export default function CustomAdminDrawerContent(props: DrawerContentComponentPr
           setUserEmail(data.user.email);
         }
       });
-    } catch {}
+    } catch { }
   }, []);
 
-  const menuItems = [
-    { name: 'Dashboard', label: 'Dashboard', icon: '📈' },
-    { name: 'Empresas', label: 'Empresas', icon: '🏢' },
-    { name: 'Solicitações', label: 'Solicitações', icon: '📥' },
-    { name: 'Débitos', label: 'Débitos', icon: '💳' },
-    { name: 'Relatórios', label: 'Relatórios', icon: '📊' },
-    { name: 'Comunicados', label: 'Comunicados', icon: '📢' },
-    { name: 'Configuração', label: 'Configurações', icon: '⚙️' },
-    { name: 'Instruções', label: 'Instruções', icon: '📖' },
+  // Estado para seções expandidas
+  const [expandedSections, setExpandedSections] = React.useState<Set<string>>(new Set(['visao_geral']));
+
+  const toggleSection = (key: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedSections(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(key)) {
+        newSet.delete(key);
+      } else {
+        newSet.add(key);
+      }
+      return newSet;
+    });
+  };
+
+  // Menu organizado em seções (baseado em boas práticas SaaS)
+  const menuSections: MenuSection[] = [
+    {
+      key: 'visao_geral',
+      label: 'Visão Geral',
+      icon: '🏠',
+      items: [
+        { name: 'Dashboard', label: 'Dashboard', icon: '📊' },
+        { name: 'Relatórios', label: 'Relatórios', icon: '📈' },
+      ],
+    },
+    {
+      key: 'clientes',
+      label: 'Clientes & Empresas',
+      icon: '🏢',
+      items: [
+        { name: 'Empresas', label: 'Empresas', icon: '🏢' },
+        { name: 'Solicitações', label: 'Solicitações', icon: '📥' },
+        { name: 'Engajamento', label: 'Saúde & Engajamento', icon: '🏥' },
+        { name: 'Inadimplência', label: 'Inadimplência', icon: '🔴' },
+      ],
+    },
+    {
+      key: 'produto_uso',
+      label: 'Produto & Uso',
+      icon: '📈',
+      items: [
+        { name: 'Analytics', label: 'Analytics', icon: '📈' },
+        { name: 'Conversão', label: 'Funil de Conversão', icon: '🎯' },
+      ],
+    },
+    {
+      key: 'comunicacao',
+      label: 'Comunicação & Suporte',
+      icon: '💬',
+      items: [
+        { name: 'Comunicados', label: 'Broadcast', icon: '📢' },
+        { name: 'Suporte', label: 'Suporte', icon: '💬' },
+      ],
+    },
+    {
+      key: 'financeiro',
+      label: 'Financeiro',
+      icon: '💰',
+      items: [
+        { name: 'Finanças', label: 'Finanças', icon: '💰' },
+        { name: 'Débitos', label: 'Débitos', icon: '💳' },
+        { name: 'Cupons', label: 'Cupons', icon: '🎟️' },
+      ],
+    },
+    {
+      key: 'infra',
+      label: 'Infra & Dados',
+      icon: '☁️',
+      items: [
+        { name: 'Backup Central', label: 'Backup Central', icon: '☁️' },
+        { name: 'Auditoria', label: 'Auditoria', icon: '📜' },
+      ],
+    },
+    {
+      key: 'config',
+      label: 'Configurações',
+      icon: '⚙️',
+      items: [
+        { name: 'Configuração', label: 'Configurações', icon: '⚙️' },
+        { name: 'LandingSettings', label: 'Landing Page', icon: '🌐' },
+        { name: 'Instruções', label: 'Instruções', icon: '📖' },
+      ],
+    },
   ];
+
+  // Navegação
+  const handleNavigate = (name: string) => {
+    props.navigation.navigate(name);
+    if (!isWideWeb) {
+      props.navigation.closeDrawer();
+    }
+  };
 
   // Logo do admin
   const webLogoUrl = mode === 'dark'
     ? 'https://i.im.ge/2025/11/02/nzgjAc.Logo-White.png'
     : 'https://i.im.ge/2025/11/03/nH0whJ.Logo-Black.png';
-  const logoSource = mode === 'dark' ? require('../../Logo White.png') : require('../../Logo Black.png');
+  const logoSource = mode === 'dark' ? require('../../assets/landing/Logo White.png') : require('../../assets/landing/Logo Black.png');
 
   return (
     <View style={[styles.container, { backgroundColor: theme.drawerBackground }]}>
@@ -117,20 +309,20 @@ export default function CustomAdminDrawerContent(props: DrawerContentComponentPr
       <View style={[styles.header, { backgroundColor: theme.drawerHeaderBackground }]}>
         {Platform.OS === 'web' ? (
           // @ts-ignore - img tag para Web
-          <img 
-            src={webLogoUrl} 
-            style={{ 
-              width: 48, 
-              height: 48, 
+          <img
+            src={webLogoUrl}
+            style={{
+              width: 64,
+              height: 64,
               objectFit: 'contain',
-              marginBottom: 8,
-            }} 
+              marginBottom: 4,
+            }}
             alt="Logo Admin"
           />
         ) : (
           <Image
             source={logoSource}
-            style={styles.logo}
+            style={[styles.logo, { width: 64, height: 64, marginBottom: 4 }]}
             resizeMode="contain"
           />
         )}
@@ -145,22 +337,17 @@ export default function CustomAdminDrawerContent(props: DrawerContentComponentPr
         </Text>
       </View>
 
-      {/* Items de Navegação */}
+      {/* Items de Navegação - Seções Colapsáveis */}
       <ScrollView style={styles.menuContainer} showsVerticalScrollIndicator={false}>
-        {menuItems.map((item) => (
-          <DrawerItem
-            key={item.name}
-            label={item.label}
-            icon={item.icon}
-            isActive={currentRoute === item.name}
+        {menuSections.map((section) => (
+          <CollapsibleSection
+            key={section.key}
+            section={section}
+            isExpanded={expandedSections.has(section.key)}
+            onToggle={() => toggleSection(section.key)}
+            currentRoute={currentRoute}
             theme={theme}
-            onPress={() => {
-              props.navigation.navigate(item.name);
-              // Fechar drawer em mobile após navegação
-              if (!isWideWeb) {
-                props.navigation.closeDrawer();
-              }
-            }}
+            onNavigate={handleNavigate}
           />
         ))}
       </ScrollView>
@@ -211,15 +398,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    paddingTop: 30,
-    paddingBottom: 12,
-    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 8,
+    paddingHorizontal: 12,
     alignItems: 'center',
+    borderBottomRightRadius: 38,
   },
   logo: {
-    width: Platform.OS === 'web' ? 48 : 52,
-    height: Platform.OS === 'web' ? 48 : 52,
-    marginBottom: 8,
+    width: 64,
+    height: 64,
+    marginBottom: 4,
   },
   companyName: {
     fontSize: 16,
@@ -238,6 +426,19 @@ const styles = StyleSheet.create({
   menuContainer: {
     flex: 1,
     paddingTop: 8,
+  },
+  menuDivider: {
+    height: 1,
+    marginHorizontal: 16,
+    marginVertical: 8,
+  },
+  menuSectionTitle: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1,
+    marginHorizontal: 16,
+    marginBottom: 4,
+    marginTop: 4,
   },
   drawerItem: {
     flexDirection: 'row',
@@ -258,6 +459,47 @@ const styles = StyleSheet.create({
   drawerLabel: {
     fontSize: 13,
     flex: 1,
+  },
+  subItem: {
+    paddingLeft: 32,
+    paddingVertical: 10,
+    minHeight: 40,
+  },
+  subItemIcon: {
+    fontSize: 14,
+    marginRight: 10,
+    width: 20,
+  },
+  subItemLabel: {
+    fontSize: 12,
+  },
+  sectionContainer: {
+    marginBottom: 4,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginHorizontal: 8,
+    borderRadius: 10,
+  },
+  sectionIcon: {
+    fontSize: 16,
+    marginRight: 10,
+    width: 22,
+    textAlign: 'center',
+  },
+  sectionLabel: {
+    fontSize: 13,
+    flex: 1,
+  },
+  expandIcon: {
+    fontSize: 10,
+    marginLeft: 8,
+  },
+  sectionItems: {
+    marginLeft: 8,
   },
   footerActions: {
     borderTopWidth: 1,

@@ -46,15 +46,31 @@ const ORDER_STATUS = [
   { key: 'all', label: 'Todos', color: '#6b7280' },
   { key: 'pending', label: 'A receber', color: '#f59e0b' },
   { key: 'in_progress', label: 'Em Andamento', color: '#3b82f6' },
-  { key: 'completed', label: 'Recebidos', color: '#10b981' },
+  { key: 'completed', label: 'Entregue', color: '#10b981' },
   { key: 'cancelled', label: 'Cancelados', color: '#ef4444' },
 ];
 
-// Função para obter data futura (dias no futuro)
+// Helper para obter data no fuso horário de Brasília (America/Sao_Paulo)
+function getBrasiliaDate(date: Date = new Date()): string {
+  // Formata a data no fuso de Brasília
+  return date.toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }); // sv-SE retorna YYYY-MM-DD
+}
+
+// Helper para obter hora atual no fuso horário de Brasília
+function getBrasiliaTime(date: Date = new Date()): string {
+  return date.toLocaleTimeString('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
+}
+
+// Função para obter data futura (dias no futuro) - Brasília
 function getFutureDate(daysAhead: number): string {
   const date = new Date();
   date.setDate(date.getDate() + daysAhead);
-  return date.toISOString().split('T')[0];
+  return getBrasiliaDate(date);
 }
 
 // Função para obter hora padrão (14:00)
@@ -62,33 +78,56 @@ function getDefaultTime(): string {
   return '14:00';
 }
 
-// Função para verificar encomendas do dia seguinte (excluindo canceladas)
+// Função para verificar encomendas do dia seguinte (excluindo canceladas) - Brasília
 function getTomorrowOrders(orders: Order[]): { count: number; earliestTime: string } {
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowStr = tomorrow.toISOString().split('T')[0];
-  
+  const tomorrowStr = getBrasiliaDate(tomorrow);
+
   // Filtrar apenas encomendas ativas (não canceladas)
-  const tomorrowOrders = orders.filter(order => 
-    order.delivery_date === tomorrowStr && 
+  const tomorrowOrders = orders.filter(order =>
+    order.delivery_date === tomorrowStr &&
     order.status !== 'cancelled'
   );
-  
+
   if (tomorrowOrders.length === 0) {
     return { count: 0, earliestTime: '' };
   }
-  
+
   // Ordenar por hora para pegar a mais cedo
   const sortedOrders = tomorrowOrders.sort((a, b) => {
     const timeA = a.delivery_time || '23:59';
     const timeB = b.delivery_time || '23:59';
     return timeA.localeCompare(timeB);
   });
-  
-  return { 
-    count: tomorrowOrders.length, 
-    earliestTime: sortedOrders[0]?.delivery_time || 'N/A' 
+
+  return {
+    count: tomorrowOrders.length,
+    earliestTime: sortedOrders[0]?.delivery_time || 'N/A'
   };
+}
+
+// Função para verificar encomendas em atraso (data/hora de entrega já passou e não está completed) - Brasília
+function getOverdueOrders(orders: Order[]): Order[] {
+  const now = new Date();
+  const todayStr = getBrasiliaDate(now);
+  const currentTime = getBrasiliaTime(now);
+
+  return orders.filter(order => {
+    // Ignorar canceladas e já entregues
+    if (order.status === 'cancelled' || order.status === 'completed') return false;
+
+    // Verificar se a data de entrega já passou
+    if (order.delivery_date < todayStr) return true;
+
+    // Se é hoje, verificar se a hora já passou
+    if (order.delivery_date === todayStr) {
+      const orderTime = order.delivery_time || '23:59';
+      return orderTime < currentTime;
+    }
+
+    return false;
+  });
 }
 
 // Função para formatar data de YYYY-MM-DD para DD/MM/YYYY
@@ -106,7 +145,7 @@ async function listOrders(companyId: string): Promise<Order[]> {
     .select('*')
     .eq('company_id', companyId)
     .order('delivery_date', { ascending: true });
-  
+
   if (error) throw error;
   return data || [];
 }
@@ -120,9 +159,9 @@ async function createOrder(companyId: string, order: CreateOrderInput): Promise<
     })
     .select()
     .single();
-  
+
   if (error) throw error;
-  
+
   // Criar lançamento automático do sinal pago - usando o company_id correto
   if (order.down_payment_cents > 0) {
     try {
@@ -140,7 +179,7 @@ async function createOrder(companyId: string, order: CreateOrderInput): Promise<
       // Não falhar a criação da encomenda se o lançamento falhar
     }
   }
-  
+
   return data;
 }
 
@@ -149,12 +188,12 @@ async function updateOrder(companyId: string, orderId: string, order: Partial<Cr
   if (order.status === 'cancelled' && originalOrder && originalOrder.down_payment_cents > 0) {
     try {
       const transactions = await getTransactionsByDate(originalOrder.created_at.split('T')[0]);
-      const relatedTransaction = transactions.find((t: Transaction) => 
+      const relatedTransaction = transactions.find((t: Transaction) =>
         t.description === `Entrada de Encomenda de ${originalOrder.client_name}` &&
         t.amount_cents === originalOrder.down_payment_cents &&
         t.type === 'income'
       );
-      
+
       if (relatedTransaction) {
         await softDeleteTransaction(relatedTransaction.id);
       }
@@ -163,7 +202,59 @@ async function updateOrder(companyId: string, orderId: string, order: Partial<Cr
       // Continuar com a atualização da encomenda mesmo se falhar
     }
   }
-  
+
+  // NOVO: Se o sinal (down_payment_cents) está sendo adicionado ou aumentado, criar lançamento
+  if (originalOrder && order.down_payment_cents !== undefined) {
+    const oldDeposit = originalOrder.down_payment_cents || 0;
+    const newDeposit = order.down_payment_cents || 0;
+    const depositDifference = newDeposit - oldDeposit;
+
+    if (depositDifference > 0) {
+      try {
+        console.log(`[📦 ORDERS] Criando lançamento para novo sinal: R$ ${depositDifference / 100}`);
+        const now = new Date();
+        await createTransaction({
+          type: 'income',
+          description: `Entrada de Encomenda de ${originalOrder.client_name}`,
+          amount_cents: depositDifference,
+          date: todayYMD(),
+          datetime: now.toISOString(),
+          category: 'Encomenda',
+          company_id: companyId,
+        });
+        console.log('[📦 ORDERS] Lançamento do sinal criado com sucesso!');
+      } catch (transactionError) {
+        console.error('Erro ao criar lançamento do sinal:', transactionError);
+      }
+    }
+  }
+
+  // NOVO: Se o status está mudando para completed, criar lançamento do valor restante
+  if (order.status === 'completed' && originalOrder && originalOrder.status !== 'completed') {
+    const orderValue = order.order_value_cents ?? originalOrder.order_value_cents;
+    const downPayment = order.down_payment_cents ?? originalOrder.down_payment_cents;
+    const remainingValue = orderValue - downPayment;
+
+    if (remainingValue > 0) {
+      try {
+        console.log(`[📦 ORDERS] Criando lançamento para valor restante: R$ ${remainingValue / 100}`);
+        const now = new Date();
+        await createTransaction({
+          type: 'income',
+          description: `Encomenda - ${originalOrder.client_name} (${originalOrder.order_type})`,
+          amount_cents: remainingValue,
+          date: todayYMD(),
+          datetime: now.toISOString(),
+          category: 'Encomenda',
+          company_id: companyId,
+        });
+        console.log('[📦 ORDERS] Lançamento do valor restante criado com sucesso!');
+      } catch (transactionError) {
+        console.error('Erro ao criar lançamento do valor restante:', transactionError);
+      }
+    }
+  }
+
   const { data, error } = await supabase
     .from('orders')
     .update(order)
@@ -171,77 +262,98 @@ async function updateOrder(companyId: string, orderId: string, order: Partial<Cr
     .eq('company_id', companyId)
     .select()
     .single();
-  
+
   if (error) throw error;
   return data;
 }
 
 async function deleteOrder(companyId: string, orderId: string, order: Order): Promise<void> {
   console.log('deleteOrder iniciando para:', orderId, order.client_name);
-  
+
   try {
     // Primeiro, encontrar e excluir TODOS os lançamentos relacionados
     console.log('Procurando lançamentos relacionados para excluir...');
-    
-    // Buscar lançamentos em múltiplas datas (possivelmente a data de criação e entrega)
+
+    // Buscar lançamentos em múltiplas datas possíveis
+    const today = todayYMD();
     const datesToSearch = [
-      order.created_at.split('T')[0], // Data de criação
-      order.delivery_date // Data de entrega
-    ].filter((date, index, arr) => date && arr.indexOf(date) === index); // Remover duplicatas
-    
+      order.created_at?.split('T')[0], // Data de criação
+      order.delivery_date, // Data de entrega
+      today, // Data de hoje (quando podem ter sido editados/entregues)
+    ].filter((date, index, arr) => date && arr.indexOf(date) === index); // Remover duplicatas e nulls
+
+    // Também buscar nos últimos 30 dias para garantir
+    for (let i = 1; i <= 30; i++) {
+      const pastDate = new Date();
+      pastDate.setDate(pastDate.getDate() - i);
+      const dateStr = pastDate.toISOString().split('T')[0];
+      if (!datesToSearch.includes(dateStr)) {
+        datesToSearch.push(dateStr);
+      }
+    }
+
     let deletedTransactions = 0;
-    
+
+    // Padrões de descrição para identificar transações relacionadas
+    const descriptionPatterns = [
+      `Entrada de Encomenda de ${order.client_name}`,
+      `Encomenda de ${order.client_name}`,
+      `Sinal de Encomenda de ${order.client_name}`,
+      `Encomenda - ${order.client_name}`,
+      `Encomenda - ${order.client_name} (${order.order_type})`,
+    ];
+
     for (const date of datesToSearch) {
       try {
         const transactions = await getTransactionsByDate(date);
-        console.log(`Verificando ${transactions.length} lançamentos na data ${date}...`);
-        
-        // Encontrar lançamentos relacionados por diferentes critérios
+
+        // Encontrar lançamentos relacionados
         const relatedTransactions = transactions.filter((t: Transaction) => {
           // Verificar se é uma entrada de encomenda
           if (t.type !== 'income') return false;
-          
-          // Verificar por descrição (vários formatos possíveis)
-          const descriptionPatterns = [
-            `Entrada de Encomenda de ${order.client_name}`,
-            `Encomenda de ${order.client_name}`,
-            `Sinal de Encomenda de ${order.client_name}`,
-            order.client_name // Apenas o nome do cliente
-          ];
-          
-          const matchesDescription = descriptionPatterns.some(pattern => 
-            t.description?.includes(pattern) || pattern.includes(t.description || '')
+
+          // Verificar por descrição
+          const desc = t.description || '';
+          const matchesDescription = descriptionPatterns.some(pattern =>
+            desc.includes(pattern) ||
+            desc.includes(order.client_name)
           );
-          
-          // Verificar por valor (se houver sinal/entrada)
-          const matchesValue = order.down_payment_cents > 0 
-            ? t.amount_cents === order.down_payment_cents 
-            : true; // Se não há valor de entrada, não filtrar por valor
-          
-          return matchesDescription && matchesValue;
+
+          // Verificar por categoria também
+          const matchesCategory = t.category === 'Encomenda';
+
+          // Verificar por valor (sinal ou valor restante)
+          const remainingValue = order.order_value_cents - order.down_payment_cents;
+          const matchesValue =
+            t.amount_cents === order.down_payment_cents ||
+            t.amount_cents === remainingValue ||
+            t.amount_cents === order.order_value_cents;
+
+          // Match se descrição contém nome do cliente E (valor bate OU categoria é Encomenda)
+          return matchesDescription && (matchesValue || matchesCategory);
         });
-        
-        console.log(`Encontrados ${relatedTransactions.length} lançamentos relacionados na data ${date}`);
-        
+
+        if (relatedTransactions.length > 0) {
+          console.log(`Encontrados ${relatedTransactions.length} lançamentos relacionados na data ${date}`);
+        }
+
         // Excluir cada lançamento encontrado
         for (const transaction of relatedTransactions) {
           try {
-            console.log('Excluindo lançamento:', transaction.id, transaction.description);
+            console.log('Excluindo lançamento:', transaction.id, transaction.description, transaction.amount_cents);
             await softDeleteTransaction(transaction.id);
             deletedTransactions++;
           } catch (deleteError) {
             console.error('Erro ao excluir lançamento individual:', deleteError);
-            // Continuar tentando excluir outros lançamentos
           }
         }
       } catch (dateError) {
-        console.error(`Erro ao buscar lançamentos da data ${date}:`, dateError);
-        // Continuar para a próxima data
+        // Silenciar erros de datas sem transações
       }
     }
-    
+
     console.log(`Total de ${deletedTransactions} lançamentos excluídos com sucesso!`);
-    
+
     // Agora excluir a encomenda
     console.log('Excluindo encomenda do Supabase...');
     const { error } = await supabase
@@ -249,14 +361,14 @@ async function deleteOrder(companyId: string, orderId: string, order: Order): Pr
       .delete()
       .eq('id', orderId)
       .eq('company_id', companyId);
-    
+
     if (error) {
       console.error('Erro ao excluir encomenda:', error);
       throw error;
     }
-    
+
     console.log('Encomenda excluída com sucesso!');
-    
+
   } catch (error) {
     console.error('Erro crítico ao excluir encomenda:', error);
     throw error;
@@ -304,33 +416,39 @@ export default function OrdersScreen() {
       try {
         // Verificar se é admin
         let role: string | null = null;
-        if (Platform.OS === 'web') role = (window.sessionStorage.getItem('auth_role') || '').toLowerCase();
-        else try { role = (await require('expo-secure-store').getItemAsync('auth_role')) || ''; } catch {}
-        
+        if (Platform.OS === 'web') role = (window.localStorage.getItem('auth_role') || '').toLowerCase();
+        else try { role = (await require('expo-secure-store').getItemAsync('auth_role')) || ''; } catch { }
+
         const admin = role === 'admin';
         setIsAdmin(admin);
-        
+
+        console.log('[📦 ORDERS] Role:', role, 'isAdmin:', admin);
+
         if (admin) {
           // Admin: buscar empresas e configurar seleção
           const adminId = await getAdminAppCompanyId();
           setAdminCompanyId(adminId);
-          
+          console.log('[📦 ORDERS] Admin company ID:', adminId);
+
           // Se admin selecionou uma empresa específica, usar ela
           if (selectedCompanyId) {
             setCompanyId(selectedCompanyId);
+            console.log('[📦 ORDERS] Usando empresa selecionada:', selectedCompanyId);
           } else {
             // Por padrão, admin vê suas próprias encomendas (admin app)
             if (adminId) {
               setCompanyId(adminId);
+              console.log('[📦 ORDERS] Usando empresa admin:', adminId);
             }
           }
         } else {
           // Usuário normal: SEMPRE usar sua própria empresa
           const userCompanyId = await getCurrentCompanyId();
+          console.log('[📦 ORDERS] User company ID:', userCompanyId);
           if (userCompanyId) setCompanyId(userCompanyId);
         }
       } catch (error) {
-        console.error('Error getting company ID:', error);
+        console.error('[📦 ORDERS] Error getting company ID:', error);
       }
     })();
   }, [selectedCompanyId]);
@@ -350,40 +468,66 @@ export default function OrdersScreen() {
     }
   });
 
-  const { data: orders = [], isLoading } = useQuery({
+  const { data: orders = [], isLoading, error: ordersError } = useQuery({
     queryKey: ['orders', companyId],
-    queryFn: () => listOrders(companyId),
     enabled: !!companyId,
+    queryFn: async () => {
+      console.log('[📦 ORDERS] Buscando encomendas para company_id:', companyId);
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('company_id', companyId)
+        .is('deleted_at', null)
+        .order('delivery_date', { ascending: true });
+      if (error) {
+        console.error('[📦 ORDERS] Erro ao buscar encomendas:', error);
+        throw error;
+      }
+      console.log('[📦 ORDERS] Encomendas encontradas:', data?.length || 0);
+      return data || [];
+    },
   });
 
   // Lógica de filtragem local
   const filteredOrders = React.useMemo(() => {
     let filtered = [...orders];
-    
+
     // Aplicar filtro por status
     if (activeFilter !== 'all') {
       filtered = filtered.filter(order => order.status === activeFilter);
     }
-    
+
     // Aplicar busca textual
     if (searchText.trim()) {
       const normalizedSearch = normalizeText(searchText);
-      filtered = filtered.filter(order => 
+      filtered = filtered.filter(order =>
         normalizeText(order.client_name).includes(normalizedSearch) ||
         normalizeText(order.order_type).includes(normalizedSearch) ||
         normalizeText(order.notes || '').includes(normalizedSearch)
       );
     }
-    
+
     return filtered;
   }, [orders, activeFilter, searchText]);
+
+  // Ordenar encomendas: entregues vão para o final
+  const sortedOrders = React.useMemo(() => {
+    return [...filteredOrders].sort((a, b) => {
+      // Se uma é completed e a outra não, a completed vai para o final
+      if (a.status === 'completed' && b.status !== 'completed') return 1;
+      if (a.status !== 'completed' && b.status === 'completed') return -1;
+
+      // Se ambas têm o mesmo status, ordenar por data de entrega
+      return a.delivery_date.localeCompare(b.delivery_date);
+    });
+  }, [filteredOrders]);
 
   // Verificar encomendas do dia seguinte e mostrar notificação
   React.useEffect(() => {
     if (orders.length > 0) {
       const now = new Date();
       const currentHour = now.getHours();
-      
+
       // Mostrar notificação apenas após as 12h
       if (currentHour >= 12) {
         const { count, earliestTime } = getTomorrowOrders(orders);
@@ -396,10 +540,28 @@ export default function OrdersScreen() {
 
   const createOrderMutation = useMutation({
     mutationFn: (order: CreateOrderInput) => createOrder(companyId, order),
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ['orders', companyId] });
+
+      // Invalidar queries de transações para atualizar dashboard e relatórios
+      const today = todayYMD();
+      queryClient.invalidateQueries({ queryKey: ['transactions-by-date', today] });
+      queryClient.invalidateQueries({ queryKey: ['daily-totals', today] });
+      queryClient.invalidateQueries({ queryKey: ['month-totals'] });
+      queryClient.invalidateQueries({ queryKey: ['month-series'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['category-breakdown'] });
+
       show('Encomenda criada com sucesso!');
       resetForm();
+
+      // Forçar sincronização
+      try {
+        await syncAll();
+        console.log('Sincronização após criação concluída');
+      } catch (syncError) {
+        console.error('Erro na sincronização após criação:', syncError);
+      }
     },
     onError: (error: any) => {
       show('Erro ao criar encomenda: ' + error.message, 'error');
@@ -409,10 +571,28 @@ export default function OrdersScreen() {
   const updateOrderMutation = useMutation({
     mutationFn: ({ orderId, order, originalOrder }: { orderId: string; order: Partial<CreateOrderInput>; originalOrder?: Order }) =>
       updateOrder(companyId, orderId, order, originalOrder),
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ['orders', companyId] });
+
+      // Invalidar queries de transações para atualizar dashboard e relatórios
+      const today = todayYMD();
+      queryClient.invalidateQueries({ queryKey: ['transactions-by-date', today] });
+      queryClient.invalidateQueries({ queryKey: ['daily-totals', today] });
+      queryClient.invalidateQueries({ queryKey: ['month-totals'] });
+      queryClient.invalidateQueries({ queryKey: ['month-series'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['category-breakdown'] });
+
       show('Encomenda atualizada com sucesso!');
       resetForm();
+
+      // Forçar sincronização
+      try {
+        await syncAll();
+        console.log('[📦 ORDERS] Sincronização após atualização concluída');
+      } catch (syncError) {
+        console.error('[📦 ORDERS] Erro na sincronização após atualização:', syncError);
+      }
     },
     onError: (error: any) => {
       show('Erro ao atualizar encomenda: ' + error.message, 'error');
@@ -427,18 +607,18 @@ export default function OrdersScreen() {
     onSuccess: async () => {
       // Invalidar queries de encomendas
       queryClient.invalidateQueries({ queryKey: ['orders', companyId] });
-      
+
       // Invalidar queries de transações para múltiplas datas
       const today = new Date().toISOString().split('T')[0];
       queryClient.invalidateQueries({ queryKey: ['transactions-by-date', today] });
       queryClient.invalidateQueries({ queryKey: ['daily-totals', today] });
-      
+
       // Invalidar queries do mês atual
       const currentYear = new Date().getFullYear().toString();
       const currentMonth = String(new Date().getMonth() + 1).padStart(2, '0');
       queryClient.invalidateQueries({ queryKey: ['month-totals', currentYear, currentMonth] });
       queryClient.invalidateQueries({ queryKey: ['month-series', currentYear, currentMonth] });
-      
+
       // Invalidar queries da semana atual
       const startOfWeek = new Date();
       const day = startOfWeek.getDay();
@@ -447,12 +627,12 @@ export default function OrdersScreen() {
       const weekStart = startOfWeek.toISOString().split('T')[0];
       queryClient.invalidateQueries({ queryKey: ['week-totals', weekStart] });
       queryClient.invalidateQueries({ queryKey: ['week-series', weekStart] });
-      
+
       show('Encomenda e lançamentos relacionados excluídos com sucesso!', 'success');
-      
+
       // Forçar sincronização
-      try { 
-        await syncAll(); 
+      try {
+        await syncAll();
         console.log('Sincronização após exclusão concluída');
       } catch (syncError) {
         console.error('Erro na sincronização após exclusão:', syncError);
@@ -536,6 +716,14 @@ export default function OrdersScreen() {
   const [confirmDeleteVisible, setConfirmDeleteVisible] = React.useState(false);
   const [orderToDelete, setOrderToDelete] = React.useState<Order | null>(null);
 
+  // Estados para modal de entrega
+  const [confirmDeliveryVisible, setConfirmDeliveryVisible] = React.useState(false);
+  const [orderToDeliver, setOrderToDeliver] = React.useState<Order | null>(null);
+
+  // Estado para alerta de encomendas em atraso
+  const [showOverdueAlert, setShowOverdueAlert] = React.useState(true);
+  const overdueOrders = React.useMemo(() => getOverdueOrders(orders), [orders]);
+
   const handleDelete = (order: Order) => {
     console.log('handleDelete chamado para:', order.client_name);
     setOrderToDelete(order);
@@ -556,17 +744,94 @@ export default function OrdersScreen() {
     setOrderToDelete(null);
   };
 
+  // Mutation para marcar como entregue
+  const deliverOrderMutation = useMutation({
+    mutationFn: async (order: Order) => {
+      // 1. Atualizar status da encomenda para completed
+      const updatedOrder = await updateOrder(companyId, order.id, { status: 'completed' }, order);
+
+      // 2. Criar lançamento do valor restante (se houver)
+      const remainingValue = order.order_value_cents - order.down_payment_cents;
+      if (remainingValue > 0) {
+        const now = new Date();
+        await createTransaction({
+          type: 'income',
+          description: `Encomenda - ${order.client_name} (${order.order_type})`,
+          amount_cents: remainingValue,
+          date: todayYMD(),
+          datetime: now.toISOString(),
+          category: 'Encomenda',
+          company_id: companyId,
+        });
+      }
+
+      return updatedOrder;
+    },
+    onSuccess: async () => {
+      // Invalidar queries
+      queryClient.invalidateQueries({ queryKey: ['orders', companyId] });
+
+      // Invalidar queries de transações
+      const today = todayYMD();
+      queryClient.invalidateQueries({ queryKey: ['transactions-by-date', today] });
+      queryClient.invalidateQueries({ queryKey: ['daily-totals', today] });
+      queryClient.invalidateQueries({ queryKey: ['month-totals'] });
+      queryClient.invalidateQueries({ queryKey: ['month-series'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['category-breakdown'] });
+
+      show('✅ Encomenda marcada como entregue!', 'success');
+      setConfirmDeliveryVisible(false);
+      setOrderToDeliver(null);
+
+      // Sincronizar
+      try { await syncAll(); } catch (e) { console.warn('Sync falhou:', e); }
+    },
+    onError: (error: any) => {
+      console.error('Erro ao marcar como entregue:', error);
+      show('Erro ao marcar como entregue: ' + error.message, 'error');
+    },
+  });
+
+  const handleDelivery = (order: Order) => {
+    setOrderToDeliver(order);
+    setConfirmDeliveryVisible(true);
+  };
+
+  const confirmDelivery = () => {
+    if (orderToDeliver) {
+      deliverOrderMutation.mutate(orderToDeliver);
+    }
+  };
+
+  const cancelDelivery = () => {
+    setConfirmDeliveryVisible(false);
+    setOrderToDeliver(null);
+  };
+
   const renderOrderItem = ({ item }: { item: Order }) => {
     const statusInfo = ORDER_STATUS.find(s => s.key === item.status) || ORDER_STATUS[0];
     const remainingValue = item.order_value_cents - item.down_payment_cents;
-    
+    const isDelivered = item.status === 'completed';
+
+    // Cores para botões de encomendas entregues (cinza)
+    const editButtonColor = isDelivered ? '#6b7280' : theme.primary;
+    const deleteButtonColor = isDelivered ? '#4b5563' : '#ef4444';
+
     return (
-      <View style={[styles.orderCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+      <View style={[
+        styles.orderCard,
+        {
+          backgroundColor: isDelivered ? '#1f2937' : theme.card, // Fundo mais escuro para entregues
+          borderColor: isDelivered ? '#374151' : theme.border,
+          opacity: isDelivered ? 0.8 : 1
+        }
+      ]}>
         <View style={styles.orderHeader}>
-          <Text style={[styles.clientName, { color: theme.text }]}>
+          <Text style={[styles.clientName, { color: isDelivered ? '#9ca3af' : theme.text }]}>
             {item.client_name}
           </Text>
-          <Text style={[styles.orderType, { color: theme.textSecondary }]}>
+          <Text style={[styles.orderType, { color: isDelivered ? '#6b7280' : theme.textSecondary }]}>
             {item.order_type}
           </Text>
           <View style={[styles.statusBadge, { backgroundColor: statusInfo.color }]}>
@@ -576,56 +841,68 @@ export default function OrdersScreen() {
 
         <View style={styles.orderDetails}>
           <View style={styles.detailRow}>
-            <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Data de Entrega:</Text>
-            <Text style={[styles.detailValue, { color: theme.text }]}>
+            <Text style={[styles.detailLabel, { color: isDelivered ? '#6b7280' : theme.textSecondary }]}>Data de Entrega:</Text>
+            <Text style={[styles.detailValue, { color: isDelivered ? '#9ca3af' : theme.text }]}>
               {formatDateToDisplay(item.delivery_date)}
             </Text>
           </View>
 
           <View style={styles.detailRow}>
-            <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Hora da Entrega:</Text>
-            <Text style={[styles.detailValue, { color: theme.text }]}>
+            <Text style={[styles.detailLabel, { color: isDelivered ? '#6b7280' : theme.textSecondary }]}>Hora da Entrega:</Text>
+            <Text style={[styles.detailValue, { color: isDelivered ? '#9ca3af' : theme.text }]}>
               {item.delivery_time || 'N/A'}
             </Text>
           </View>
 
           <View style={styles.detailRow}>
-            <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Valor Total:</Text>
-            <Text style={[styles.detailValue, { color: theme.text }]}>
+            <Text style={[styles.detailLabel, { color: isDelivered ? '#6b7280' : theme.textSecondary }]}>Valor Total:</Text>
+            <Text style={[styles.detailValue, { color: isDelivered ? '#9ca3af' : theme.text }]}>
               {formatCentsBRL(item.order_value_cents)}
             </Text>
           </View>
 
           <View style={styles.detailRow}>
-            <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Sinal/Entrada:</Text>
-            <Text style={[styles.detailValue, { color: theme.text }]}>
+            <Text style={[styles.detailLabel, { color: isDelivered ? '#6b7280' : theme.textSecondary }]}>Sinal/Entrada:</Text>
+            <Text style={[styles.detailValue, { color: isDelivered ? '#9ca3af' : theme.text }]}>
               {formatCentsBRL(item.down_payment_cents)}
             </Text>
           </View>
 
           <View style={styles.detailRow}>
-            <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Restante:</Text>
-            <Text style={[styles.detailValue, { color: theme.text, fontWeight: '700' }]}>
+            <Text style={[styles.detailLabel, { color: isDelivered ? '#6b7280' : theme.textSecondary }]}>Restante:</Text>
+            <Text style={[styles.detailValue, { color: isDelivered ? '#9ca3af' : theme.text, fontWeight: '700' }]}>
               {formatCentsBRL(remainingValue)}
             </Text>
           </View>
         </View>
 
         {item.notes && (
-          <Text style={[styles.notes, { color: theme.textSecondary }]}>
+          <Text style={[styles.notes, { color: isDelivered ? '#6b7280' : theme.textSecondary }]}>
             {item.notes}
           </Text>
         )}
 
         <View style={styles.orderActions}>
+          {/* Botão Entregue - só aparece se não estiver completed ou cancelled */}
+          {item.status !== 'completed' && item.status !== 'cancelled' && (
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: '#10b981' }]}
+              onPress={() => handleDelivery(item)}
+              disabled={deliverOrderMutation.isPending}
+            >
+              <Text style={styles.actionButtonText}>
+                {deliverOrderMutation.isPending ? '...' : '✓ Entregue'}
+              </Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: theme.primary }]}
+            style={[styles.actionButton, { backgroundColor: editButtonColor }]}
             onPress={() => handleEdit(item)}
           >
             <Text style={styles.actionButtonText}>Editar</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.actionButton, styles.deleteButton]}
+            style={[styles.actionButton, { backgroundColor: deleteButtonColor }]}
             onPress={() => {
               console.log('Botão excluir clicado para:', item.client_name);
               handleDelete(item);
@@ -650,7 +927,7 @@ export default function OrdersScreen() {
             theme={theme}
           />
         )}
-        
+
         <Text style={[styles.loadingText, { color: theme.text }]}>Carregando...</Text>
       </ScrollView>
     );
@@ -667,9 +944,28 @@ export default function OrdersScreen() {
           theme={theme}
         />
       )}
-      
+
       <ScreenTitle title="Encomendas" subtitle="Gerencie encomendas e entradas" />
-      
+
+      {/* Alerta de Encomendas em Atraso */}
+      {showOverdueAlert && overdueOrders.length > 0 && (
+        <View style={[styles.overdueAlert, { backgroundColor: '#fef2f2', borderColor: '#ef4444' }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: '#dc2626', fontWeight: '700', fontSize: 16, marginBottom: 4 }}>
+                ⚠️ {overdueOrders.length} encomenda{overdueOrders.length > 1 ? 's' : ''} em atraso!
+              </Text>
+              <Text style={{ color: '#b91c1c', fontSize: 13 }}>
+                {overdueOrders.map(o => `${o.client_name} (${formatDateToDisplay(o.delivery_date)} ${o.delivery_time || ''})`).join(', ')}
+              </Text>
+            </View>
+            <TouchableOpacity onPress={() => setShowOverdueAlert(false)} style={{ padding: 8 }}>
+              <Text style={{ color: '#dc2626', fontSize: 18, fontWeight: '700' }}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
       {/* Seletor de Empresa (apenas admin) */}
       {isAdmin && isWeb && (
         <View style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10, marginBottom: 4 }}>
@@ -700,7 +996,7 @@ export default function OrdersScreen() {
           </select>
         </View>
       )}
-      
+
       <View style={{ flexDirection: isWideWeb ? 'row' : 'column', gap: 16, flex: 1, width: '100%' }}>
         {/* COLUNA ESQUERDA - FORMULÁRIO */}
         <View style={{ width: isWideWeb ? '48%' : '100%', gap: 12 }}>
@@ -740,14 +1036,14 @@ export default function OrdersScreen() {
                     value={formData.delivery_date}
                     onChange={(e: any) => setFormData({ ...formData, delivery_date: String(e.target?.value || formData.delivery_date) })}
                     min={getFutureDate(1)}
-                    style={{ 
-                      width: '100%', 
-                      height: 44, 
-                      padding: 12, 
-                      borderRadius: 8, 
-                      border: `1px solid ${theme.inputBorder}`, 
-                      backgroundColor: theme.input, 
-                      color: theme.text, 
+                    style={{
+                      width: '100%',
+                      height: 44,
+                      padding: 12,
+                      borderRadius: 8,
+                      border: `1px solid ${theme.inputBorder}`,
+                      backgroundColor: theme.input,
+                      color: theme.text,
                       fontSize: 16,
                       boxSizing: 'border-box',
                       outline: 'none'
@@ -775,14 +1071,14 @@ export default function OrdersScreen() {
                     type="time"
                     value={formData.delivery_time}
                     onChange={(e: any) => setFormData({ ...formData, delivery_time: String(e.target?.value || formData.delivery_time) })}
-                    style={{ 
-                      width: '100%', 
-                      height: 44, 
-                      padding: 12, 
-                      borderRadius: 8, 
-                      border: `1px solid ${theme.inputBorder}`, 
-                      backgroundColor: theme.input, 
-                      color: theme.text, 
+                    style={{
+                      width: '100%',
+                      height: 44,
+                      padding: 12,
+                      borderRadius: 8,
+                      border: `1px solid ${theme.inputBorder}`,
+                      backgroundColor: theme.input,
+                      color: theme.text,
                       fontSize: 16,
                       boxSizing: 'border-box',
                       outline: 'none'
@@ -905,7 +1201,7 @@ export default function OrdersScreen() {
             onFilterChange={setActiveFilter}
             searchPlaceholder="Buscar por cliente, tipo ou observações..."
           />
-          
+
           {isLoading ? (
             <Text style={[styles.loadingText, { color: theme.text }]}>Carregando...</Text>
           ) : filteredOrders.length === 0 ? (
@@ -919,7 +1215,7 @@ export default function OrdersScreen() {
             </View>
           ) : (
             <View style={styles.ordersList}>
-              {filteredOrders.map((order) => (
+              {sortedOrders.map((order) => (
                 <View key={order.id}>
                   {renderOrderItem({ item: order })}
                 </View>
@@ -928,7 +1224,7 @@ export default function OrdersScreen() {
           )}
         </View>
       </View>
-      
+
       {/* Native Date Picker - apenas para mobile */}
       {showDatePicker && Platform.OS !== 'web' && (
         <NativeDatePicker
@@ -942,7 +1238,7 @@ export default function OrdersScreen() {
           onCancel={() => setShowDatePicker(false)}
         />
       )}
-      
+
       {/* Native Time Picker - apenas para mobile */}
       {showTimePicker && Platform.OS !== 'web' && (
         <NativeDatePicker
@@ -955,27 +1251,72 @@ export default function OrdersScreen() {
           onCancel={() => setShowTimePicker(false)}
         />
       )}
-      
+
       {/* Modal de confirmação de exclusão */}
       {confirmDeleteVisible && orderToDelete && (
         <View style={styles.modalBackdrop}>
-          <View style={styles.confirmModal}>
+          <View style={[styles.confirmModal, { backgroundColor: theme.card }]}>
             <Text style={[styles.modalTitle, { color: theme.text }]}>🗑️ Excluir Encomenda</Text>
             <Text style={[styles.modalMessage, { color: theme.text }]}>
               Deseja realmente excluir a encomenda de <Text style={{ fontWeight: '700' }}>{orderToDelete.client_name}</Text>?
             </Text>
             <View style={styles.modalActions}>
-              <TouchableOpacity 
-                onPress={cancelDelete} 
+              <TouchableOpacity
+                onPress={cancelDelete}
                 style={[styles.modalButton, styles.cancelButton]}
               >
                 <Text style={styles.cancelButtonText}>Cancelar</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
-                onPress={confirmDelete} 
+              <TouchableOpacity
+                onPress={confirmDelete}
                 style={[styles.modalButton, styles.confirmButton]}
               >
                 <Text style={styles.confirmButtonText}>Excluir</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Modal de confirmação de entrega */}
+      {confirmDeliveryVisible && orderToDeliver && (
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.confirmModal, { backgroundColor: theme.card }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>📦 Marcar como Entregue</Text>
+            <Text style={[styles.modalMessage, { color: theme.text }]}>
+              Confirmar entrega da encomenda de <Text style={{ fontWeight: '700' }}>{orderToDeliver.client_name}</Text>?
+            </Text>
+            <View style={{ backgroundColor: '#f0fdf4', padding: 12, borderRadius: 8, marginBottom: 16 }}>
+              <Text style={{ color: '#166534', fontSize: 14, marginBottom: 4 }}>
+                <Text style={{ fontWeight: '700' }}>Valor Total:</Text> {formatCentsBRL(orderToDeliver.order_value_cents)}
+              </Text>
+              <Text style={{ color: '#166534', fontSize: 14, marginBottom: 4 }}>
+                <Text style={{ fontWeight: '700' }}>Sinal Pago:</Text> {formatCentsBRL(orderToDeliver.down_payment_cents)}
+              </Text>
+              <Text style={{ color: '#166534', fontSize: 14, fontWeight: '700' }}>
+                Valor Restante: {formatCentsBRL(orderToDeliver.order_value_cents - orderToDeliver.down_payment_cents)}
+              </Text>
+              {(orderToDeliver.order_value_cents - orderToDeliver.down_payment_cents) > 0 && (
+                <Text style={{ color: '#15803d', fontSize: 12, marginTop: 8, fontStyle: 'italic' }}>
+                  * O valor restante será lançado automaticamente em "Lançamentos"
+                </Text>
+              )}
+            </View>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                onPress={cancelDelivery}
+                style={[styles.modalButton, styles.cancelButton]}
+              >
+                <Text style={styles.cancelButtonText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={confirmDelivery}
+                style={[styles.modalButton, { backgroundColor: '#10b981' }]}
+                disabled={deliverOrderMutation.isPending}
+              >
+                <Text style={styles.confirmButtonText}>
+                  {deliverOrderMutation.isPending ? 'Processando...' : '✓ Confirmar Entrega'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -988,6 +1329,12 @@ export default function OrdersScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  overdueAlert: {
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 2,
+    marginBottom: 12,
   },
   cardTitle: {
     fontSize: 18,
@@ -1221,7 +1568,7 @@ const styles = StyleSheet.create({
     padding: 24,
     marginHorizontal: 32,
     maxWidth: 400,
-    width: '100%',
+    width: '90%',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,

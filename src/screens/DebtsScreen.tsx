@@ -93,7 +93,7 @@ export default function DebtsScreen() {
     (async () => {
       try {
         let role: string | null = null;
-        if (Platform.OS === 'web') role = (window.sessionStorage.getItem('auth_role') || '').toLowerCase();
+        if (Platform.OS === 'web') role = (window.localStorage.getItem('auth_role') || '').toLowerCase();
         else try { role = (await require('expo-secure-store').getItemAsync('auth_role')) || ''; } catch {}
         const admin = role === 'admin';
         setIsAdmin(admin);

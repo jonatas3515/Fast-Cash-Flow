@@ -14,36 +14,18 @@ import * as Sharing from 'expo-sharing';
 import { Linking } from 'react-native';
 import NativeDatePicker from '../utils/NativeDatePicker';
 import * as FileSystem from 'expo-file-system';
-import { useSettings } from '../settings/SettingsProvider';
+import { useSegmentCategories } from '../hooks/useSegmentCategories';
 import { syncAll, pushDirty } from '../lib/sync';
 import ScreenTitle from '../components/ScreenTitle';
 import FilterDropdown from '../components/FilterDropdown';
 import FilterHeader, { normalizeText } from '../components/FilterHeader';
+import TodayQuickActions from '../components/TodayQuickActions';
+import FeatureBanner from '../components/FeatureBanner';
+import SummaryCard, { SummaryGrid } from '../components/SummaryCard';
 
 // Opções de filtro para entradas
-const INCOME_OPTIONS = [
-  'Bolo',
-  'Delivery',
-  'Doces',
-  'Encomenda',
-  'Kit Festa',
-  'Pizzas',
-  'Refrigerante',
-  'Retirada',
-  'Salgados',
-];
 
 // Opções de filtro para saídas
-const EXPENSE_OPTIONS = [
-  'Aluguel',
-  'Conta de Água',
-  'Conta de Energia',
-  'Empréstimo',
-  'Gasolina',
-  'Pessoal',
-  'Reposição',
-  'Telefone',
-];
 
 export default function DayScreen() {
   const qc = useQueryClient();
@@ -53,10 +35,11 @@ export default function DayScreen() {
   const { width } = useWindowDimensions();
   const isWeb = Platform.OS === 'web';
   const isWideWeb = isWeb && width >= 1024;
-  const { settings } = useSettings();
+  const { incomeOptions, expenseOptions } = useSegmentCategories();
   const lastSyncToastRef = React.useRef<number>(0);
   const [type, setType] = React.useState<TxType>('income');
   const [description, setDescription] = React.useState('');
+  const [additionalDescription, setAdditionalDescription] = React.useState(''); // Descrição adicional para saídas
   const [amount, setAmount] = React.useState('');
   const [date, setDate] = React.useState(todayYMD());
   const [editVisible, setEditVisible] = React.useState(false);
@@ -66,8 +49,7 @@ export default function DayScreen() {
   const [editDesc, setEditDesc] = React.useState('');
   const [editCat, setEditCat] = React.useState('');
   const [editAmt, setEditAmt] = React.useState('');
-  const [isRecurring, setIsRecurring] = React.useState(false);
-  const [recurrenceType, setRecurrenceType] = React.useState<RecurrenceType>('monthly');
+  const [clientName, setClientName] = React.useState('');
 
   // Estados para filtros
   const [searchText, setSearchText] = React.useState('');
@@ -88,21 +70,21 @@ export default function DayScreen() {
   // Lógica de filtragem local
   const filteredTransactions = React.useMemo(() => {
     let filtered = [...(txQuery.data || [])];
-    
+
     // Aplicar filtro por tipo
     if (activeFilter !== 'all') {
       filtered = filtered.filter(tx => tx.type === activeFilter);
     }
-    
+
     // Aplicar busca textual
     if (searchText.trim()) {
       const normalizedSearch = normalizeText(searchText);
-      filtered = filtered.filter(tx => 
+      filtered = filtered.filter(tx =>
         normalizeText(tx.description || '').includes(normalizedSearch) ||
         normalizeText(tx.category || '').includes(normalizedSearch)
       );
     }
-    
+
     return filtered;
   }, [txQuery.data, activeFilter, searchText]);
 
@@ -141,24 +123,23 @@ export default function DayScreen() {
 
       const time = nowHM();
       const baseDate = date ? new Date(`${date}T${time}:00`) : new Date();
+
+      // Para saídas, combinar descrição do dropdown com descrição adicional
+      let finalDescription = description;
+      if (type === 'expense' && additionalDescription.trim()) {
+        finalDescription = `${description} - ${additionalDescription.trim()}`;
+      }
+
       await createTransaction({
         type,
-        description,
+        description: finalDescription,
+        category: description, // Categoria é sempre o valor do dropdown
         amount_cents: cents,
         date,
         time,
         datetime: baseDate.toISOString(),
+        clientname: type === 'income' ? clientName : undefined,
       });
-
-      if (type === 'expense' && isRecurring) {
-        await createRecurringExpense({
-          description,
-          amount_cents: cents,
-          recurrence_type: recurrenceType,
-          start_date: date,
-          end_date: null,
-        });
-      }
     },
     onSuccess: async () => {
       qc.invalidateQueries({ queryKey: ['transactions-by-date', date] });
@@ -171,11 +152,12 @@ export default function DayScreen() {
       qc.invalidateQueries({ queryKey: ['week-series', startOfWeekSunday(date)] });
       qc.invalidateQueries({ queryKey: ['recurring-expenses'] });
       setDescription('');
+      setAdditionalDescription('');
       setAmount('');
-      setIsRecurring(false);
+      setClientName('');
       toast.show(t('added'), 'success');
       // Force sync after creating transaction
-      try { await syncAll(); } catch {}
+      try { await syncAll(); } catch { }
     },
     onError: (error: any) => toast.show(error?.message || t('error'), 'error'),
   });
@@ -205,7 +187,7 @@ export default function DayScreen() {
       setEditing(null);
       toast.show(t('saved'), 'success');
       // Force sync after editing transaction
-      try { await syncAll(); } catch {}
+      try { await syncAll(); } catch { }
     },
     onError: () => toast.show(t('error'), 'error'),
   });
@@ -234,7 +216,7 @@ export default function DayScreen() {
       qc.invalidateQueries({ queryKey: ['week-series', startOfWeekSunday(date)] });
       toast.show(t('deleted'), 'success');
       // Force sync after deleting transaction
-      try { await syncAll(); } catch {}
+      try { await syncAll(); } catch { }
     },
     onError: () => toast.show(t('error'), 'error'),
   });
@@ -266,9 +248,9 @@ export default function DayScreen() {
     const settings = settingsQuery.data;
     const totals = totalsQuery.data;
     const today = todayYMD();
-    
+
     if (!settings || !totals || date !== today) return null;
-    
+
     // Alerta de saldo diário negativo
     if (settings.alert_negative_balance && totals.balance_cents < 0) {
       return {
@@ -276,17 +258,36 @@ export default function DayScreen() {
         color: '#D90429'
       };
     }
-    
+
     return null;
   }, [settingsQuery.data, totalsQuery.data, date, formatMoney]);
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.background, width: '100%' }}>
       <ScrollView style={{ flex: 1, width: '100%' }} contentContainerStyle={{ paddingBottom: 80, padding: 16, gap: 12, width: '100%' }} keyboardShouldPersistTaps="handled">
-        <ScreenTitle 
-          title="Lançamentos" 
-          subtitle="Gerencie entradas e saídas do dia" 
+        <ScreenTitle
+          title="Lançamentos"
+          subtitle="Gerencie entradas e saídas do dia"
         />
+
+        {/* Bloco "Hoje" com ações rápidas - apenas quando a data é hoje */}
+        {date === todayYMD() && (
+          <TodayQuickActions
+            onRegisterIncome={() => {
+              setType('income');
+              setDescription('');
+              setAmount('');
+            }}
+            onRegisterExpense={() => {
+              setType('expense');
+              setDescription('');
+              setAmount('');
+            }}
+            onCheckBalance={() => {
+              // Scroll para a lista de transações
+            }}
+          />
+        )}
 
         {/* Banner de Alerta */}
         {alert && (
@@ -301,7 +302,7 @@ export default function DayScreen() {
             <View style={styles.dateRow}>
               {Platform.OS === 'web' ? (
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: theme.text }}>Data: {`${date.substring(8,10)}/${date.substring(5,7)}/${date.substring(0,4)}`}</Text>
+                  <Text style={{ color: theme.text }}>Data: {`${date.substring(8, 10)}/${date.substring(5, 7)}/${date.substring(0, 4)}`}</Text>
                   {/* @ts-ignore */}
                   <input
                     type="date"
@@ -323,8 +324,8 @@ export default function DayScreen() {
                     setShowPicker(false);
                     if (d) {
                       const y = d.getFullYear();
-                      const m = String(d.getMonth()+1).padStart(2,'0');
-                      const dd = String(d.getDate()).padStart(2,'0');
+                      const m = String(d.getMonth() + 1).padStart(2, '0');
+                      const dd = String(d.getDate()).padStart(2, '0');
                       setDate(`${y}-${m}-${dd}`);
                     }
                   }}
@@ -333,20 +334,20 @@ export default function DayScreen() {
             </View>
 
             <View style={styles.typeRow}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 onPress={() => {
                   setType('income');
                   setDescription(''); // Limpar filtro ao mudar tipo
-                }} 
+                }}
                 style={[styles.typeBtn, { borderColor: type === 'income' ? '#16A34A' : '#666', backgroundColor: type === 'income' ? '#16A34A' : theme.card }]}
               >
                 <Text style={[styles.typeText, { color: type === 'income' ? '#fff' : theme.text }]}>{t('income')}</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
+              <TouchableOpacity
                 onPress={() => {
                   setType('expense');
                   setDescription(''); // Limpar filtro ao mudar tipo
-                }} 
+                }}
                 style={[styles.typeBtn, { borderColor: type === 'expense' ? '#D90429' : '#666', backgroundColor: type === 'expense' ? '#D90429' : theme.card }]}
               >
                 <Text style={[styles.typeText, { color: type === 'expense' ? '#fff' : theme.text }]}>{t('expense')}</Text>
@@ -356,65 +357,34 @@ export default function DayScreen() {
             {/* Filtro de Descrição baseado no tipo */}
             <FilterDropdown
               label={type === 'income' ? 'Tipo de Entrada:' : 'Tipo de Saída:'}
-              options={type === 'income' ? INCOME_OPTIONS : EXPENSE_OPTIONS}
+              options={type === 'income' ? incomeOptions : expenseOptions}
               selectedValue={description}
               onSelect={setDescription}
               theme={theme}
             />
+
+            {/* Campo Descrição adicional (apenas para saídas) */}
+            {type === 'expense' && (
+              <TextInput
+                placeholder="Descrição adicional (opcional)"
+                placeholderTextColor="#999"
+                value={additionalDescription}
+                onChangeText={setAdditionalDescription}
+                style={[styles.input, { color: theme.text, backgroundColor: theme.card }]}
+              />
+            )}
+
             <TextInput placeholder={t('value_example')} placeholderTextColor="#999" value={amount} onChangeText={(txt) => setAmount(maskBRLInput(txt))} keyboardType="numeric" style={[styles.input, { color: theme.text, backgroundColor: theme.card }]} />
 
-            {type === 'expense' && (
-              <View style={{ marginTop: 4, gap: 8 }}>
-                <TouchableOpacity
-                  onPress={() => setIsRecurring(v => !v)}
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
-                >
-                  <View
-                    style={{
-                      width: 20,
-                      height: 20,
-                      borderRadius: 4,
-                      borderWidth: 1,
-                      borderColor: isRecurring ? '#16A34A' : '#9ca3af',
-                      backgroundColor: isRecurring ? '#16A34A' : 'transparent',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    {isRecurring && <Text style={{ color: '#fff', fontSize: 14 }}>✓</Text>}
-                  </View>
-                  <Text style={{ color: theme.text, fontSize: 13, fontWeight: '600' }}>Marcar como despesa recorrente</Text>
-                </TouchableOpacity>
-
-                {isRecurring && (
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                    {([
-                      { key: 'monthly', label: 'Mensal' },
-                      { key: 'weekly', label: 'Semanal' },
-                      { key: 'biweekly', label: 'Quinzenal' },
-                      { key: 'annual', label: 'Anual' },
-                    ] as { key: RecurrenceType; label: string }[]).map(opt => {
-                      const active = recurrenceType === opt.key;
-                      return (
-                        <TouchableOpacity
-                          key={opt.key}
-                          onPress={() => setRecurrenceType(opt.key)}
-                          style={{
-                            paddingHorizontal: 10,
-                            paddingVertical: 6,
-                            borderRadius: 999,
-                            borderWidth: 1,
-                            borderColor: active ? '#16A34A' : '#9ca3af',
-                            backgroundColor: active ? '#dcfce7' : theme.card,
-                          }}
-                        >
-                          <Text style={{ color: active ? '#166534' : theme.text, fontSize: 11, fontWeight: '700' }}>{opt.label}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                )}
-              </View>
+            {/* Campo Cliente (apenas para entradas) */}
+            {type === 'income' && (
+              <TextInput
+                placeholder="Nome do cliente (opcional)"
+                placeholderTextColor="#999"
+                value={clientName}
+                onChangeText={setClientName}
+                style={[styles.input, { color: theme.text, backgroundColor: theme.card }]}
+              />
             )}
             <Button title={type === 'income' ? t('add_income') : t('add_expense')} color={type === 'income' ? '#16A34A' : '#D90429'} onPress={() => createMut.mutate()} />
           </View>
@@ -422,7 +392,7 @@ export default function DayScreen() {
           {/* RIGHT COLUMN: Transactions list */}
           <View style={{ flex: isWideWeb ? 1 : undefined, minWidth: isWideWeb ? 280 : undefined, width: isWideWeb ? undefined : '100%' }}>
             <Text style={[styles.subtitle, { color: theme.text }]}>{t('today_transactions')} — {date}</Text>
-            
+
             <FilterHeader
               searchValue={searchText}
               onSearchChange={setSearchText}
@@ -431,10 +401,10 @@ export default function DayScreen() {
               onFilterChange={setActiveFilter}
               searchPlaceholder="Buscar por descrição ou categoria..."
             />
-            
+
             {isWideWeb ? (
               <FlatList
-                style={{ }}
+                style={{}}
                 data={filteredTransactions}
                 keyExtractor={(item) => item.id}
                 ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
@@ -442,7 +412,12 @@ export default function DayScreen() {
                 renderItem={({ item }) => (
                   <View style={styles.item}>
                     <View style={{ flex: 1 }}>
-                      <Text style={[styles.itemTitle, { color: theme.text }]} numberOfLines={1}>{item.description || ''} • {item.time}</Text>
+                      <Text style={[styles.itemTitle, { color: theme.text }]} numberOfLines={1}>
+                        {item.clientname
+                          ? `${item.description || ''} * ${item.clientname} • ${item.time}`
+                          : `${item.description || ''} • ${item.time}`
+                        }
+                      </Text>
                       <Text style={[styles.itemSub, { color: '#888' }]} numberOfLines={1}>{item.category || '—'}</Text>
                     </View>
                     <Text style={[styles.amount, item.type === 'income' ? styles.amountIncome : styles.amountExpense]}>
@@ -462,7 +437,12 @@ export default function DayScreen() {
                 {filteredTransactions.map((item) => (
                   <View key={item.id} style={styles.item}>
                     <View style={{ flex: 1 }}>
-                      <Text style={[styles.itemTitle, { color: theme.text }]} numberOfLines={1}>{item.description || ''} • {item.time}</Text>
+                      <Text style={[styles.itemTitle, { color: theme.text }]} numberOfLines={1}>
+                        {item.clientname
+                          ? `${item.description || ''} * ${item.clientname} • ${item.time}`
+                          : `${item.description || ''} • ${item.time}`
+                        }
+                      </Text>
                       <Text style={[styles.itemSub, { color: '#888' }]} numberOfLines={1}>{item.category || '—'}</Text>
                     </View>
                     <Text style={[styles.amount, item.type === 'income' ? styles.amountIncome : styles.amountExpense]}>
@@ -478,14 +458,36 @@ export default function DayScreen() {
                 ))}
               </View>
             )}
-            <View style={styles.footer}>
-              <Text style={{ color: theme.text }}>{t('income')}: {formatMoney(totalsQuery.data?.income_cents || 0)}</Text>
-              <Text style={{ color: theme.text }}>{t('expense')}: {formatMoney(totalsQuery.data?.expense_cents || 0)}</Text>
-              <Text style={{ color: (totalsQuery.data?.balance_cents || 0) >= 0 ? '#16A34A' : '#D90429' }}>{t('balance')}: {formatMoney(totalsQuery.data?.balance_cents || 0)}</Text>
+            {/* Daily Summary Cards */}
+            <View style={{ marginTop: 16, marginBottom: 8 }}>
+              <Text style={[styles.subtitle, { color: theme.text, marginBottom: 12 }]}>Resumo do Dia</Text>
+              <SummaryGrid columns={3}>
+                <SummaryCard
+                  title="Entradas"
+                  value={formatMoney(totalsQuery.data?.income_cents || 0)}
+                  icon="📥"
+                  variant="positive"
+                  compact
+                />
+                <SummaryCard
+                  title="Saídas"
+                  value={formatMoney(totalsQuery.data?.expense_cents || 0)}
+                  icon="📤"
+                  variant="negative"
+                  compact
+                />
+                <SummaryCard
+                  title="Saldo"
+                  value={formatMoney(totalsQuery.data?.balance_cents || 0)}
+                  icon="💰"
+                  variant={(totalsQuery.data?.balance_cents || 0) >= 0 ? 'positive' : 'negative'}
+                  compact
+                />
+              </SummaryGrid>
             </View>
           </View>
         </View>
-      
+
         {/* Despesas recorrentes */}
         <View style={{ marginTop: 24, gap: 8 }}>
           <Text style={[styles.subtitle, { color: theme.text }]}>Despesas recorrentes</Text>
@@ -507,9 +509,9 @@ export default function DayScreen() {
                   : '—';
                 const typeLabel =
                   rec.recurrence_type === 'monthly' ? 'Mensal' :
-                  rec.recurrence_type === 'weekly' ? 'Semanal' :
-                  rec.recurrence_type === 'biweekly' ? 'Quinzenal' :
-                  rec.recurrence_type === 'annual' ? 'Anual' : 'Custom';
+                    rec.recurrence_type === 'weekly' ? 'Semanal' :
+                      rec.recurrence_type === 'biweekly' ? 'Quinzenal' :
+                        rec.recurrence_type === 'annual' ? 'Anual' : 'Custom';
                 return (
                   <View
                     key={rec.id}
@@ -557,6 +559,107 @@ export default function DayScreen() {
         </View>
 
       </ScrollView>
+
+      {/* MODAL DE EDIÇÃO */}
+      {editVisible && editing && (
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modal, { backgroundColor: theme.card }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>Editar Lançamento</Text>
+
+            {/* Tipo */}
+            <View style={[styles.typeRow, { marginBottom: 12 }]}>
+              <TouchableOpacity
+                onPress={() => setEditType('income')}
+                style={[styles.typeBtn, { borderColor: editType === 'income' ? '#16A34A' : '#666', backgroundColor: editType === 'income' ? '#16A34A' : theme.background }]}
+              >
+                <Text style={[styles.typeText, { color: editType === 'income' ? '#fff' : theme.text }]}>Entrada</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setEditType('expense')}
+                style={[styles.typeBtn, { borderColor: editType === 'expense' ? '#D90429' : '#666', backgroundColor: editType === 'expense' ? '#D90429' : theme.background }]}
+              >
+                <Text style={[styles.typeText, { color: editType === 'expense' ? '#fff' : theme.text }]}>Saída</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Descrição */}
+            <TextInput
+              placeholder="Descrição"
+              placeholderTextColor="#999"
+              value={editDesc}
+              onChangeText={setEditDesc}
+              style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
+            />
+
+            {/* Categoria */}
+            <TextInput
+              placeholder="Categoria"
+              placeholderTextColor="#999"
+              value={editCat}
+              onChangeText={setEditCat}
+              style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
+            />
+
+            {/* Valor */}
+            <TextInput
+              placeholder="Valor (ex: 50,00)"
+              placeholderTextColor="#999"
+              value={editAmt}
+              onChangeText={(txt) => setEditAmt(maskBRLInput(txt))}
+              keyboardType="numeric"
+              style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
+            />
+
+            {/* Botões */}
+            <View style={{ flexDirection: 'row', gap: 12, marginTop: 8 }}>
+              <TouchableOpacity
+                onPress={() => {
+                  setEditVisible(false);
+                  setEditing(null);
+                }}
+                style={{ flex: 1, padding: 14, borderRadius: 8, backgroundColor: '#6b7280', alignItems: 'center' }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={async () => {
+                  if (!editing) return;
+                  try {
+                    const cents = parseBRLToCents(editAmt);
+                    if (cents <= 0) {
+                      toast.show('Valor inválido', 'error');
+                      return;
+                    }
+                    await updateTransaction(editing.id, {
+                      type: editType,
+                      description: editDesc,
+                      category: editCat,
+                      amount_cents: cents,
+                    });
+                    // Invalidar queries
+                    qc.invalidateQueries({ queryKey: ['transactions-by-date', date] });
+                    qc.invalidateQueries({ queryKey: ['daily-totals', date] });
+                    const y = date.substring(0, 4);
+                    const m = date.substring(5, 7);
+                    qc.invalidateQueries({ queryKey: ['month-totals', y, m] });
+                    qc.invalidateQueries({ queryKey: ['dashboard'] });
+                    toast.show('Lançamento atualizado!', 'success');
+                    setEditVisible(false);
+                    setEditing(null);
+                    // Sync
+                    try { await syncAll(); } catch { }
+                  } catch (e: any) {
+                    toast.show('Erro ao atualizar: ' + e.message, 'error');
+                  }
+                }}
+                style={{ flex: 1, padding: 14, borderRadius: 8, backgroundColor: '#16A34A', alignItems: 'center' }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '700' }}>Salvar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -567,24 +670,24 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 18, fontWeight: '700' },
   dateRow: { flexDirection: 'row', alignItems: 'center', gap: 8, width: '100%' },
   typeRow: { flexDirection: 'row', gap: 8, marginBottom: 8, width: '100%' },
-  typeBtn: { 
-    borderWidth: 1, 
-    borderRadius: Platform.OS === 'web' ? 8 : 10, 
-    paddingVertical: Platform.OS === 'web' ? 8 : 14, 
-    paddingHorizontal: 16, 
-    flex: 1, 
-    alignItems: 'center', 
+  typeBtn: {
+    borderWidth: 1,
+    borderRadius: Platform.OS === 'web' ? 8 : 10,
+    paddingVertical: Platform.OS === 'web' ? 8 : 14,
+    paddingHorizontal: 16,
+    flex: 1,
+    alignItems: 'center',
     minHeight: Platform.OS === 'web' ? 44 : 52,
     width: '100%',
   },
   typeText: { fontWeight: '700', fontSize: Platform.OS === 'web' ? 14 : 16 },
-  input: { 
-    borderWidth: Platform.OS === 'web' ? 1 : 2, 
-    borderColor: '#ddd', 
-    borderRadius: Platform.OS === 'web' ? 8 : 10, 
-    padding: Platform.OS === 'web' ? 12 : 16, 
-    marginBottom: 8, 
-    fontSize: Platform.OS === 'web' ? 14 : 16, 
+  input: {
+    borderWidth: Platform.OS === 'web' ? 1 : 2,
+    borderColor: '#ddd',
+    borderRadius: Platform.OS === 'web' ? 8 : 10,
+    padding: Platform.OS === 'web' ? 12 : 16,
+    marginBottom: 8,
+    fontSize: Platform.OS === 'web' ? 14 : 16,
     minHeight: Platform.OS === 'web' ? 44 : 54,
     width: '100%',
   },

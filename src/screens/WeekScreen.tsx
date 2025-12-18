@@ -12,8 +12,11 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
 import { useSettings } from '../settings/SettingsProvider';
+import WeekSummaryCard from '../components/WeekSummaryCard';
+import { useNavigation } from '@react-navigation/native';
 
 export default function WeekScreen() {
+  const navigation = useNavigation<any>();
   const [start, setStart] = React.useState(startOfWeekSunday(todayYMD()));
   const end = addDays(start, 6);
   const { theme } = useThemeCtx();
@@ -161,6 +164,9 @@ export default function WeekScreen() {
         <Text style={[styles.title, { color: theme.text }]}>{t('week')} {`${String(start).substring(8,10)}/${String(start).substring(5,7)}/${String(start).substring(0,4)}`} a {`${String(end).substring(8,10)}/${String(end).substring(5,7)}/${String(end).substring(0,4)}`}</Text>
         <TouchableOpacity onPress={goNext}><Text style={[styles.nav, { color: theme.text }]}>{t('next')}</Text></TouchableOpacity>
       </View>
+
+      {/* Card de Resumo Semanal com tarefas */}
+      <WeekSummaryCard navigation={navigation} startDate={start} />
 
       <View style={styles.cards}>
         <View style={[styles.card, { borderColor: '#16A34A', backgroundColor: theme.card }]}>

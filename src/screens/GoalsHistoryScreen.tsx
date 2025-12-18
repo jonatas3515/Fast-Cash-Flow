@@ -7,6 +7,7 @@ import { getCurrentCompanyId } from '../lib/company';
 import { useThemeCtx } from '../theme/ThemeProvider';
 import { useI18n } from '../i18n/I18nProvider';
 import ScreenTitle from '../components/ScreenTitle';
+import FeatureBanner, { FEATURE_BANNERS } from '../components/FeatureBanner';
 
 interface GoalHistoryItem {
   id: string;
@@ -31,7 +32,7 @@ export default function GoalsHistoryScreen() {
     queryFn: async () => {
       const companyId = await getCurrentCompanyId();
       if (!companyId) return [];
-      
+
       const goals = await getGoalsByCompany(companyId);
       const history: GoalHistoryItem[] = [];
 
@@ -43,7 +44,7 @@ export default function GoalsHistoryScreen() {
           const monthTotals = await getMonthlyTotals(parseInt(year), parseInt(month));
           const achieved = monthTotals?.income_cents || 0;
           const percent = goal.target_amount_cents > 0 ? Math.round((achieved / goal.target_amount_cents) * 100) : 0;
-          
+
           const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
           const monthLabel = `${monthNames[parseInt(month) - 1]} ${year}`;
 
@@ -73,8 +74,8 @@ export default function GoalsHistoryScreen() {
 
   const renderGoalItem = ({ item }: { item: GoalHistoryItem }) => (
     <View style={[
-      styles.goalItem, 
-      { 
+      styles.goalItem,
+      {
         backgroundColor: theme.card,
         borderColor: item.status === 'Atingida' ? '#16a34a' : '#ef4444',
         borderWidth: 1
@@ -96,7 +97,7 @@ export default function GoalsHistoryScreen() {
           </Text>
         </View>
       </View>
-      
+
       <View style={styles.goalDetails}>
         <View style={styles.detailRow}>
           <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Meta definida:</Text>
@@ -104,14 +105,14 @@ export default function GoalsHistoryScreen() {
             {formatMoney(item.target_cents)}
           </Text>
         </View>
-        
+
         <View style={styles.detailRow}>
           <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Resultado:</Text>
           <Text style={[styles.detailValue, { color: theme.text }]}>
             {formatMoney(item.achieved_cents)}
           </Text>
         </View>
-        
+
         <View style={styles.detailRow}>
           <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Percentual:</Text>
           <Text style={[
@@ -122,7 +123,7 @@ export default function GoalsHistoryScreen() {
           </Text>
         </View>
       </View>
-      
+
       {/* Barra de progresso */}
       <View style={styles.progressBar}>
         <View style={styles.progressBackground}>
@@ -151,11 +152,15 @@ export default function GoalsHistoryScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <ScreenTitle 
-        title="Histórico de Metas" 
-        subtitle="Acompanhe suas metas financeiras mensais" 
+      <ScreenTitle
+        title="Histórico de Metas"
+        subtitle="Acompanhe suas metas financeiras mensais"
       />
-      
+
+      <View style={styles.bannerContainer}>
+        <FeatureBanner {...FEATURE_BANNERS.goals} />
+      </View>
+
       <View style={styles.content}>
         {goalsQuery.data?.length === 0 ? (
           <View style={styles.emptyContainer}>
@@ -183,6 +188,10 @@ export default function GoalsHistoryScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  bannerContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
   },
   content: {
     flex: 1,

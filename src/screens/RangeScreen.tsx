@@ -19,7 +19,7 @@ import ScreenTitle from '../components/ScreenTitle';
 const RNDateTimePicker: any = Platform.OS !== 'web' ? require('@react-native-community/datetimepicker').default : null;
 
 function ymd(s: string) { return /^\d{4}-\d{2}-\d{2}$/.test(s); }
-function toDDMMYYYY(s: string) { return `${s.substring(8,10)}/${s.substring(5,7)}/${s.substring(0,4)}`; }
+function toDDMMYYYY(s: string) { return `${s.substring(8, 10)}/${s.substring(5, 7)}/${s.substring(0, 4)}`; }
 function normalizeYMD(v: string) {
   if (ymd(v)) return v;
   const m = v.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
@@ -30,7 +30,7 @@ function normalizeYMD(v: string) {
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     const dd = String(d.getDate()).padStart(2, '0');
     if (!isNaN(d.getTime())) return `${y}-${mm}-${dd}`;
-  } catch {}
+  } catch { }
   return v;
 }
 
@@ -95,8 +95,8 @@ export default function RangeScreen() {
     (async () => {
       try {
         let role: string | null = null;
-        if (Platform.OS === 'web') role = (window.sessionStorage.getItem('auth_role') || '').toLowerCase();
-        else try { role = (await require('expo-secure-store').getItemAsync('auth_role')) || ''; } catch {}
+        if (Platform.OS === 'web') role = (window.localStorage.getItem('auth_role') || '').toLowerCase();
+        else try { role = (await require('expo-secure-store').getItemAsync('auth_role')) || ''; } catch { }
         const admin = role === 'admin';
         setIsAdmin(admin);
         if (admin) {
@@ -105,7 +105,7 @@ export default function RangeScreen() {
         } else {
           setAdminCompanyId(null);
         }
-      } catch {}
+      } catch { }
     })();
   }, []);
 
@@ -173,7 +173,7 @@ export default function RangeScreen() {
           const b64 = await FileSystem.readAsStringAsync(dl.uri, { encoding: 'base64' as any });
           logoSrc = `data:image/png;base64,${b64}`;
         }
-      } catch {}
+      } catch { }
     }
     const { fixed: fixedExp, variable: variableExp } = await classifyFixedVsVariableInRange(txs as any[]);
 
@@ -185,42 +185,69 @@ export default function RangeScreen() {
       map.set(t.date, cur);
     }
     const daysSorted = Array.from(map.keys()).sort();
-    const maxY = Math.max(1, ...daysSorted.map(d => Math.max((map.get(d)?.income||0),(map.get(d)?.expense||0))))/100;
+    const maxY = Math.max(1, ...daysSorted.map(d => Math.max((map.get(d)?.income || 0), (map.get(d)?.expense || 0)))) / 100;
     const chartW = 640; const chartH = 220; const margin = 30;
     const n = Math.max(1, daysSorted.length);
     const innerW = chartW - margin * 2; const step = innerW / n; const barW = Math.max(2, step * 0.35);
     const bars = daysSorted.map((d, i) => {
-      const inc = (map.get(d)?.income || 0)/100; const exp = (map.get(d)?.expense || 0)/100;
-      const x = margin + i * step; const incH = maxY ? inc/maxY * (chartH - margin) : 0; const expH = maxY ? exp/maxY * (chartH - margin) : 0;
+      const inc = (map.get(d)?.income || 0) / 100; const exp = (map.get(d)?.expense || 0) / 100;
+      const x = margin + i * step; const incH = maxY ? inc / maxY * (chartH - margin) : 0; const expH = maxY ? exp / maxY * (chartH - margin) : 0;
       return `
         <rect x="${x}" y="${chartH - incH}" width="${barW}" height="${incH}" fill="#16A34A" />
         <rect x="${x + barW + 2}" y="${chartH - expH}" width="${barW}" height="${expH}" fill="#D90429" />`;
     }).join('');
     // Totals for PDF cards
-    let incTot = 0, expTot = 0; txs.forEach(tx => tx.type==='income' ? incTot += (tx.amount_cents||0) : expTot += (tx.amount_cents||0));
+    let incTot = 0, expTot = 0; txs.forEach(tx => tx.type === 'income' ? incTot += (tx.amount_cents || 0) : expTot += (tx.amount_cents || 0));
     const balTot = incTot - expTot;
-    const daySpan = Math.max(1, Math.floor((new Date(end).getTime() - new Date(start).getTime())/(1000*60*60*24)) + 1);
-    const avgInc = Math.round(incTot/Math.max(1, daySpan));
-    const avgExp = Math.round(expTot/Math.max(1, daySpan));
-    const avgBal = Math.round(balTot/Math.max(1, daySpan));
+    const daySpan = Math.max(1, Math.floor((new Date(end).getTime() - new Date(start).getTime()) / (1000 * 60 * 60 * 24)) + 1);
+    const avgInc = Math.round(incTot / Math.max(1, daySpan));
+    const avgExp = Math.round(expTot / Math.max(1, daySpan));
+    const avgBal = Math.round(balTot / Math.max(1, daySpan));
 
-    const rows = txs.map(tx => `
-      <tr>
+    const rows = txs.map((tx, index) => {
+      // Descrição completa: se tiver clientname, adiciona * clientname
+      const fullDescription = tx.clientname
+        ? `${(tx.description || '').replace(/</g, '&lt;')} * ${(tx.clientname || '').replace(/</g, '&lt;')}`
+        : (tx.description || '').replace(/</g, '&lt;');
+      return `
+      <tr class="${index % 2 === 0 ? 'even' : 'odd'}">
         <td>${tx.date} ${tx.time || ''}</td>
-        <td>${tx.type === 'income' ? t('income') : t('expense')}</td>
-        <td>${(tx.description || '').replace(/</g,'&lt;')}</td>
-        <td>${(tx.category || '').replace(/</g,'&lt;')}</td>
-        <td style="text-align:right">${formatMoney(tx.amount_cents || 0)}</td>
-      </tr>`).join('');
+        <td class="${tx.type === 'income' ? 'income' : 'expense'}">${tx.type === 'income' ? t('income') : t('expense')}</td>
+        <td>${fullDescription}</td>
+        <td>${(tx.category || '').replace(/</g, '&lt;')}</td>
+        <td style="text-align:right" class="${tx.type === 'income' ? 'income' : 'expense'}">${formatMoney(tx.amount_cents || 0)}</td>
+      </tr>`;
+    }).join('');
     const html = `
       <html><head><meta charset='utf-8'/>
-      <style>body{font-family:Arial,sans-serif;padding:16px}h1{font-size:18px;margin:0 0 12px 0;display:flex;align-items:center;gap:10px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:6px;font-size:12px}th{background:#f3f4f6;text-align:left}.cards{display:flex;gap:12px;margin:10px 0}.card{border:1px solid #e5e7eb;border-radius:8px;padding:10px}</style></head>
+      <style>
+        * { box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; padding: 16px; color: #1f2937; }
+        h1 { font-size: 18px; margin: 0 0 12px 0; display: flex; align-items: center; gap: 10px; color: #16A34A; }
+        .dashboard-ref { text-align: center; color: #9ca3af; font-size: 11px; margin-bottom: 16px; padding: 8px; background: #f9fafb; border-radius: 6px; }
+        .cards { display: flex; gap: 12px; margin: 10px 0; flex-wrap: wrap; }
+        .card { border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; flex: 1; min-width: 140px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .card b { color: #374151; }
+        table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 12px; }
+        thead { position: sticky; top: 0; }
+        th { background: linear-gradient(180deg, #1f2937 0%, #374151 100%); color: #fff; text-align: left; font-weight: 600; padding: 10px 8px; border: none; }
+        th:first-child { border-radius: 8px 0 0 0; }
+        th:last-child { border-radius: 0 8px 0 0; }
+        td { padding: 8px; border-bottom: 1px solid #e5e7eb; }
+        tr.even { background: #ffffff; }
+        tr.odd { background: #f9fafb; }
+        tr:hover { background: #f0fdf4; }
+        .income { color: #16A34A; font-weight: 600; }
+        .expense { color: #DC2626; font-weight: 600; }
+        .footer { text-align: center; color: #9ca3af; font-size: 11px; margin-top: 20px; padding-top: 12px; border-top: 1px solid #e5e7eb; }
+      </style></head>
       <body>
-        <h1>${logoSrc ? `<img src='${logoSrc}' style='height:56px'/> ` : ''}Relatório ${toDDMMYYYY(start)} a ${toDDMMYYYY(end)}</h1>
+        <h1>${logoSrc ? `<img src='${logoSrc}' style='height:56px'/> ` : ''}📊 Relatório ${toDDMMYYYY(start)} a ${toDDMMYYYY(end)}</h1>
+        <div class="dashboard-ref">📈 Dados do seu dashboard Fast Cash Flow</div>
         <div class='cards'>
-          <div class='card'><div><b>${t('income')}</b></div><div>${formatMoney(incTot)}</div><div style='color:#666;font-size:11px'>Média/dia: ${formatMoney(avgInc)}</div></div>
-          <div class='card'><div><b>${t('expense')}</b></div><div>${formatMoney(expTot)}</div><div style='color:#666;font-size:11px'>Média/dia: ${formatMoney(avgExp)}</div><div style='color:#b91c1c;font-size:11px;margin-top:4px'>Fixas (recorrentes): ${formatMoney(fixedExp)}</div><div style='color:#4b5563;font-size:11px'>Variáveis: ${formatMoney(variableExp)}</div></div>
-          <div class='card'><div><b>${t('balance')}</b></div><div>${formatMoney(balTot)}</div><div style='color:#666;font-size:11px'>Média/dia: ${formatMoney(avgBal)}</div></div>
+          <div class='card'><div><b>💰 ${t('income')}</b></div><div style="color:#16A34A;font-size:18px;font-weight:700">${formatMoney(incTot)}</div><div style='color:#666;font-size:11px'>Média/dia: ${formatMoney(avgInc)}</div></div>
+          <div class='card'><div><b>💸 ${t('expense')}</b></div><div style="color:#D90429;font-size:18px;font-weight:700">${formatMoney(expTot)}</div><div style='color:#666;font-size:11px'>Média/dia: ${formatMoney(avgExp)}</div><div style='color:#b91c1c;font-size:11px;margin-top:4px'>Fixas: ${formatMoney(fixedExp)}</div><div style='color:#4b5563;font-size:11px'>Variáveis: ${formatMoney(variableExp)}</div></div>
+          <div class='card'><div><b>💎 ${t('balance')}</b></div><div style="color:${balTot >= 0 ? '#16A34A' : '#D90429'};font-size:18px;font-weight:700">${formatMoney(balTot)}</div><div style='color:#666;font-size:11px'>Média/dia: ${formatMoney(avgBal)}</div></div>
         </div>
         <div style='margin:12px 0'>
           <svg width='${chartW}' height='${chartH}'>
@@ -229,10 +256,11 @@ export default function RangeScreen() {
           </svg>
         </div>
         <table>
-          <thead><tr><th>${t('date_time')}</th><th>${t('income')}/${t('expense')}</th><th>${t('table_description')}</th><th>${t('table_category')}</th><th>${t('balance')}</th></tr></thead>
+          <thead><tr><th>📅 ${t('date_time')}</th><th>📊 Tipo</th><th>📝 ${t('table_description')}</th><th>🏷️ ${t('table_category')}</th><th style="text-align:right">💵 Valor</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
-      </body></nhtml>`;
+        <div class="footer">✅ Gerado em ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} via Fast Cash Flow</div>
+      </body></html>`;
     if (Platform.OS === 'web') {
       const win = window.open('', '_blank');
       if (win) { win.document.open(); win.document.write(html); win.document.close(); win.focus(); setTimeout(() => { win.print(); win.close(); }, 300); }
@@ -267,7 +295,7 @@ export default function RangeScreen() {
           const b64 = await FileSystem.readAsStringAsync(dl.uri, { encoding: 'base64' as any });
           logoSrc = `data:image/png;base64,${b64}`;
         }
-      } catch {}
+      } catch { }
     }
     const { fixed: fixedExp, variable: variableExp } = await classifyFixedVsVariableInRange(txs as any[]);
 
@@ -279,40 +307,67 @@ export default function RangeScreen() {
       map.set(t.date, cur);
     }
     const daysSorted = Array.from(map.keys()).sort();
-    const maxY = Math.max(1, ...daysSorted.map(d => Math.max((map.get(d)?.income||0),(map.get(d)?.expense||0))))/100;
+    const maxY = Math.max(1, ...daysSorted.map(d => Math.max((map.get(d)?.income || 0), (map.get(d)?.expense || 0)))) / 100;
     const chartW = 640; const chartH = 220; const margin = 30;
     const n = Math.max(1, daysSorted.length);
     const innerW = chartW - margin * 2; const step = innerW / n; const barW = Math.max(2, step * 0.35);
     const bars = daysSorted.map((d, i) => {
-      const inc = (map.get(d)?.income || 0)/100; const exp = (map.get(d)?.expense || 0)/100;
-      const x = margin + i * step; const incH = maxY ? inc/maxY * (chartH - margin) : 0; const expH = maxY ? exp/maxY * (chartH - margin) : 0;
+      const inc = (map.get(d)?.income || 0) / 100; const exp = (map.get(d)?.expense || 0) / 100;
+      const x = margin + i * step; const incH = maxY ? inc / maxY * (chartH - margin) : 0; const expH = maxY ? exp / maxY * (chartH - margin) : 0;
       return `
         <rect x="${x}" y="${chartH - incH}" width="${barW}" height="${incH}" fill="#16A34A" />
         <rect x="${x + barW + 2}" y="${chartH - expH}" width="${barW}" height="${expH}" fill="#D90429" />`;
     }).join('');
-    let incTot = 0, expTot = 0; txs.forEach(tx => tx.type==='income' ? incTot += (tx.amount_cents||0) : expTot += (tx.amount_cents||0));
+    let incTot = 0, expTot = 0; txs.forEach(tx => tx.type === 'income' ? incTot += (tx.amount_cents || 0) : expTot += (tx.amount_cents || 0));
     const balTot = incTot - expTot;
-    const daySpan = Math.max(1, Math.floor((new Date(end).getTime() - new Date(start).getTime())/(1000*60*60*24)) + 1);
-    const avgInc = Math.round(incTot/Math.max(1, daySpan));
-    const avgExp = Math.round(expTot/Math.max(1, daySpan));
-    const avgBal = Math.round(balTot/Math.max(1, daySpan));
-    const rows = txs.map(tx => `
-      <tr>
+    const daySpan = Math.max(1, Math.floor((new Date(end).getTime() - new Date(start).getTime()) / (1000 * 60 * 60 * 24)) + 1);
+    const avgInc = Math.round(incTot / Math.max(1, daySpan));
+    const avgExp = Math.round(expTot / Math.max(1, daySpan));
+    const avgBal = Math.round(balTot / Math.max(1, daySpan));
+    const rows = txs.map((tx, index) => {
+      // Descrição completa: se tiver clientname, adiciona * clientname
+      const fullDescription = tx.clientname
+        ? `${(tx.description || '').replace(/</g, '&lt;')} * ${(tx.clientname || '').replace(/</g, '&lt;')}`
+        : (tx.description || '').replace(/</g, '&lt;');
+      return `
+      <tr class="${index % 2 === 0 ? 'even' : 'odd'}">
         <td>${tx.date} ${tx.time || ''}</td>
-        <td>${tx.type === 'income' ? t('income') : t('expense')}</td>
-        <td>${(tx.description || '').replace(/</g,'&lt;')}</td>
-        <td>${(tx.category || '').replace(/</g,'&lt;')}</td>
-        <td style="text-align:right">${formatMoney(tx.amount_cents || 0)}</td>
-      </tr>`).join('');
+        <td class="${tx.type === 'income' ? 'income' : 'expense'}">${tx.type === 'income' ? t('income') : t('expense')}</td>
+        <td>${fullDescription}</td>
+        <td>${(tx.category || '').replace(/</g, '&lt;')}</td>
+        <td style="text-align:right" class="${tx.type === 'income' ? 'income' : 'expense'}">${formatMoney(tx.amount_cents || 0)}</td>
+      </tr>`;
+    }).join('');
     const html = `
       <html><head><meta charset='utf-8'/>
-      <style>body{font-family:Arial,sans-serif;padding:16px}h1{font-size:18px;margin:0 0 12px 0;display:flex;align-items:center;gap:10px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:6px;font-size:12px}th{background:#f3f4f6;text-align:left}.cards{display:flex;gap:12px;margin:10px 0}.card{border:1px solid #e5e7eb;border-radius:8px;padding:10px}</style></head>
+      <style>
+        * { box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; padding: 16px; color: #1f2937; }
+        h1 { font-size: 18px; margin: 0 0 12px 0; display: flex; align-items: center; gap: 10px; color: #16A34A; }
+        .dashboard-ref { text-align: center; color: #9ca3af; font-size: 11px; margin-bottom: 16px; padding: 8px; background: #f9fafb; border-radius: 6px; }
+        .cards { display: flex; gap: 12px; margin: 10px 0; flex-wrap: wrap; }
+        .card { border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; flex: 1; min-width: 140px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .card b { color: #374151; }
+        table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 12px; }
+        thead { position: sticky; top: 0; }
+        th { background: linear-gradient(180deg, #1f2937 0%, #374151 100%); color: #fff; text-align: left; font-weight: 600; padding: 10px 8px; border: none; }
+        th:first-child { border-radius: 8px 0 0 0; }
+        th:last-child { border-radius: 0 8px 0 0; }
+        td { padding: 8px; border-bottom: 1px solid #e5e7eb; }
+        tr.even { background: #ffffff; }
+        tr.odd { background: #f9fafb; }
+        tr:hover { background: #f0fdf4; }
+        .income { color: #16A34A; font-weight: 600; }
+        .expense { color: #DC2626; font-weight: 600; }
+        .footer { text-align: center; color: #9ca3af; font-size: 11px; margin-top: 20px; padding-top: 12px; border-top: 1px solid #e5e7eb; }
+      </style></head>
       <body>
-        <h1>${logoSrc ? `<img src='${logoSrc}' style='height:56px'/> ` : ''}Relatório ${toDDMMYYYY(start)} a ${toDDMMYYYY(end)}</h1>
+        <h1>${logoSrc ? `<img src='${logoSrc}' style='height:56px'/> ` : ''}📊 Relatório ${toDDMMYYYY(start)} a ${toDDMMYYYY(end)}</h1>
+        <div class="dashboard-ref">📈 Dados do seu dashboard Fast Cash Flow</div>
         <div class='cards'>
-          <div class='card'><div><b>${t('income')}</b></div><div>${formatMoney(incTot)}</div><div style='color:#666;font-size:11px'>Média/dia: ${formatMoney(avgInc)}</div></div>
-          <div class='card'><div><b>${t('expense')}</b></div><div>${formatMoney(expTot)}</div><div style='color:#666;font-size:11px'>Média/dia: ${formatMoney(avgExp)}</div></div>
-          <div class='card'><div><b>${t('balance')}</b></div><div>${formatMoney(balTot)}</div><div style='color:#666;font-size:11px'>Média/dia: ${formatMoney(avgBal)}</div></div>
+          <div class='card'><div><b>💰 ${t('income')}</b></div><div style="color:#16A34A;font-size:18px;font-weight:700">${formatMoney(incTot)}</div><div style='color:#666;font-size:11px'>Média/dia: ${formatMoney(avgInc)}</div></div>
+          <div class='card'><div><b>💸 ${t('expense')}</b></div><div style="color:#D90429;font-size:18px;font-weight:700">${formatMoney(expTot)}</div><div style='color:#666;font-size:11px'>Média/dia: ${formatMoney(avgExp)}</div></div>
+          <div class='card'><div><b>💎 ${t('balance')}</b></div><div style="color:${balTot >= 0 ? '#16A34A' : '#D90429'};font-size:18px;font-weight:700">${formatMoney(balTot)}</div><div style='color:#666;font-size:11px'>Média/dia: ${formatMoney(avgBal)}</div></div>
         </div>
         <div style='margin:12px 0'>
           <svg width='${chartW}' height='${chartH}'>
@@ -321,10 +376,11 @@ export default function RangeScreen() {
           </svg>
         </div>
         <table>
-          <thead><tr><th>${t('date_time')}</th><th>${t('income')}/${t('expense')}</th><th>${t('table_description')}</th><th>${t('table_category')}</th><th>${t('balance')}</th></tr></thead>
+          <thead><tr><th>📅 ${t('date_time')}</th><th>📊 Tipo</th><th>📝 ${t('table_description')}</th><th>🏷️ ${t('table_category')}</th><th style="text-align:right">💵 Valor</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
-      </body></nhtml>`;
+        <div class="footer">✅ Gerado em ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} via Fast Cash Flow</div>
+      </body></html>`;
     const file = await Print.printToFileAsync({ html });
     if (Platform.OS === 'web') {
       try {
@@ -337,7 +393,7 @@ export default function RangeScreen() {
           await navigator.share({ files: [webFile], title: 'Relatório PDF', text: `Relatório ${toDDMMYYYY(start)} a ${toDDMMYYYY(end)}` });
           return;
         }
-      } catch {}
+      } catch { }
       // Fallback: download o PDF (usuário anexa manualmente no WhatsApp Web)
       const a = document.createElement('a');
       a.href = file.uri; a.download = `relatorio-${start}-a-${end}.pdf`; a.click();
@@ -354,96 +410,96 @@ export default function RangeScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: theme.background }}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 140, padding: 16, gap: 12 }} keyboardShouldPersistTaps="handled">
-      <ScreenTitle 
-        title="Relatórios" 
-        subtitle="Visualize dados de períodos específicos"
-      />
-      {isAdmin && hasOverdueDebts && (
-        <View style={{
-          marginTop: 8,
-          marginBottom: 4,
-          padding: 12,
-          borderRadius: 8,
-          borderWidth: 1,
-          borderColor: '#f97316',
-          backgroundColor: '#fffbeb',
-          gap: 8,
-        }}>
-          <Text style={{ color: '#b45309', fontWeight: '700', fontSize: 13 }}>
-            ⚠️ Existem parcelas em atraso nas dívidas.
-          </Text>
-          <Text style={{ color: '#92400e', fontSize: 12 }}>
-            Confirme os pagamentos das parcelas em atraso na aba Débitos para atualizar os valores de dívidas.
-          </Text>
-          <TouchableOpacity
-            onPress={() => navigation.navigate('Débitos')}
-            style={{ alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: '#f97316' }}
-          >
-            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>Ir para a aba Débitos</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-      <View style={{ width: '100%', gap: 16 }}>
-        {/* SEÇÃO 1: Inputs de Data */}
-        {Platform.OS === 'web' ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <View style={{ gap: 4, flex: 1 }}>
-              <Text style={{ color: theme.text, fontWeight: '600' }}>Início: {toDDMMYYYY(start)}</Text>
-              {/* @ts-ignore */}
-              <input type="date" value={start} onChange={(e: any) => setStart(normalizeYMD(e.target.value))} style={{ width: '100%', height: 44, padding: 12, borderRadius: 8, border: '1px solid #ddd', background: (theme as any).card, color: theme.text, colorScheme: mode === 'dark' ? 'dark' : 'light', boxSizing: 'border-box', fontSize: 14 } as any} />
-            </View>
-            <Text style={{ color: theme.text, marginHorizontal: 8 }}>até</Text>
-            <View style={{ gap: 4, flex: 1 }}>
-              <Text style={{ color: theme.text, fontWeight: '600' }}>Fim: {toDDMMYYYY(end)}</Text>
-              {/* @ts-ignore */}
-              <input type="date" value={end} onChange={(e: any) => setEnd(normalizeYMD(e.target.value))} style={{ width: '100%', height: 44, padding: 12, borderRadius: 8, border: '1px solid #ddd', background: (theme as any).card, color: theme.text, colorScheme: mode === 'dark' ? 'dark' : 'light', boxSizing: 'border-box', fontSize: 14 } as any} />
-            </View>
-          </View>
-        ) : (
-          <View style={{ gap: 10 }}>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              <View style={{ flex: 1, gap: 4 }}>
-                <Text style={{ color: theme.text, fontWeight: '600', fontSize: 13 }}>Início: {toDDMMYYYY(start)}</Text>
-                {/* @ts-ignore */}
-                <input type="date" value={start} onChange={(e: any) => setStart(normalizeYMD(e.target.value))} style={{ width: '100%', height: 52, padding: 14, borderRadius: 10, border: '2px solid #ddd', background: (theme as any).card, color: theme.text, colorScheme: mode === 'dark' ? 'dark' : 'light', boxSizing: 'border-box', fontSize: 15 } as any} />
-              </View>
-              <View style={{ flex: 1, gap: 4 }}>
-                <Text style={{ color: theme.text, fontWeight: '600', fontSize: 13 }}>Fim: {toDDMMYYYY(end)}</Text>
-                {/* @ts-ignore */}
-                <input type="date" value={end} onChange={(e: any) => setEnd(normalizeYMD(e.target.value))} style={{ width: '100%', height: 52, padding: 14, borderRadius: 10, border: '2px solid #ddd', background: (theme as any).card, color: theme.text, colorScheme: mode === 'dark' ? 'dark' : 'light', boxSizing: 'border-box', fontSize: 15 } as any} />
-              </View>
-            </View>
+        <ScreenTitle
+          title="Relatórios"
+          subtitle="Visualize dados de períodos específicos"
+        />
+        {isAdmin && hasOverdueDebts && (
+          <View style={{
+            marginTop: 8,
+            marginBottom: 4,
+            padding: 12,
+            borderRadius: 8,
+            borderWidth: 1,
+            borderColor: '#f97316',
+            backgroundColor: '#fffbeb',
+            gap: 8,
+          }}>
+            <Text style={{ color: '#b45309', fontWeight: '700', fontSize: 13 }}>
+              ⚠️ Existem parcelas em atraso nas dívidas.
+            </Text>
+            <Text style={{ color: '#92400e', fontSize: 12 }}>
+              Confirme os pagamentos das parcelas em atraso na aba Débitos para atualizar os valores de dívidas.
+            </Text>
+            <TouchableOpacity
+              onPress={() => navigation.navigate('Débitos')}
+              style={{ alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: '#f97316' }}
+            >
+              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>Ir para a aba Débitos</Text>
+            </TouchableOpacity>
           </View>
         )}
+        <View style={{ width: '100%', gap: 16 }}>
+          {/* SEÇÃO 1: Inputs de Data */}
+          {Platform.OS === 'web' ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <View style={{ gap: 4, flex: 1 }}>
+                <Text style={{ color: theme.text, fontWeight: '600' }}>Início: {toDDMMYYYY(start)}</Text>
+                {/* @ts-ignore */}
+                <input type="date" value={start} onChange={(e: any) => setStart(normalizeYMD(e.target.value))} style={{ width: '100%', height: 44, padding: 12, borderRadius: 8, border: '1px solid #ddd', background: (theme as any).card, color: theme.text, colorScheme: mode === 'dark' ? 'dark' : 'light', boxSizing: 'border-box', fontSize: 14 } as any} />
+              </View>
+              <Text style={{ color: theme.text, marginHorizontal: 8 }}>até</Text>
+              <View style={{ gap: 4, flex: 1 }}>
+                <Text style={{ color: theme.text, fontWeight: '600' }}>Fim: {toDDMMYYYY(end)}</Text>
+                {/* @ts-ignore */}
+                <input type="date" value={end} onChange={(e: any) => setEnd(normalizeYMD(e.target.value))} style={{ width: '100%', height: 44, padding: 12, borderRadius: 8, border: '1px solid #ddd', background: (theme as any).card, color: theme.text, colorScheme: mode === 'dark' ? 'dark' : 'light', boxSizing: 'border-box', fontSize: 14 } as any} />
+              </View>
+            </View>
+          ) : (
+            <View style={{ gap: 10 }}>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <View style={{ flex: 1, gap: 4 }}>
+                  <Text style={{ color: theme.text, fontWeight: '600', fontSize: 13 }}>Início: {toDDMMYYYY(start)}</Text>
+                  {/* @ts-ignore */}
+                  <input type="date" value={start} onChange={(e: any) => setStart(normalizeYMD(e.target.value))} style={{ width: '100%', height: 52, padding: 14, borderRadius: 10, border: '2px solid #ddd', background: (theme as any).card, color: theme.text, colorScheme: mode === 'dark' ? 'dark' : 'light', boxSizing: 'border-box', fontSize: 15 } as any} />
+                </View>
+                <View style={{ flex: 1, gap: 4 }}>
+                  <Text style={{ color: theme.text, fontWeight: '600', fontSize: 13 }}>Fim: {toDDMMYYYY(end)}</Text>
+                  {/* @ts-ignore */}
+                  <input type="date" value={end} onChange={(e: any) => setEnd(normalizeYMD(e.target.value))} style={{ width: '100%', height: 52, padding: 14, borderRadius: 10, border: '2px solid #ddd', background: (theme as any).card, color: theme.text, colorScheme: mode === 'dark' ? 'dark' : 'light', boxSizing: 'border-box', fontSize: 15 } as any} />
+                </View>
+              </View>
+            </View>
+          )}
 
-        {/* SEÇÃO 2: Botões PDF e WhatsApp */}
-        {Platform.OS === 'web' ? (
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <TouchableOpacity onPress={exportPDF} style={{ backgroundColor: valid ? '#0ea5e9' : '#999', paddingVertical: 14, borderRadius: 8, flex: 1, alignItems: 'center', minHeight: 48 }}>
-              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Baixar PDF</Text>
-            </TouchableOpacity>
-            <TouchableOpacity disabled={!valid} onPress={sendWhatsApp} style={{ backgroundColor: valid ? '#16A34A' : '#999', paddingVertical: 14, borderRadius: 8, flex: 1, alignItems: 'center', minHeight: 48 }}>
-              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Enviar WhatsApp</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <TouchableOpacity onPress={exportPDF} style={{ backgroundColor: valid ? '#0ea5e9' : '#999', paddingVertical: 16, borderRadius: 10, flex: 1, alignItems: 'center', minHeight: 54 }}>
-              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>📥 Baixar PDF</Text>
-            </TouchableOpacity>
-            <TouchableOpacity disabled={!valid} onPress={sendWhatsApp} style={{ backgroundColor: valid ? '#16A34A' : '#999', paddingVertical: 16, borderRadius: 10, flex: 1, alignItems: 'center', minHeight: 54 }}>
-              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>📤 WhatsApp</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-          
+          {/* SEÇÃO 2: Botões PDF e WhatsApp */}
+          {Platform.OS === 'web' ? (
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TouchableOpacity onPress={exportPDF} style={{ backgroundColor: valid ? '#0ea5e9' : '#999', paddingVertical: 14, borderRadius: 8, flex: 1, alignItems: 'center', minHeight: 48 }}>
+                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Baixar PDF</Text>
+              </TouchableOpacity>
+              <TouchableOpacity disabled={!valid} onPress={sendWhatsApp} style={{ backgroundColor: valid ? '#16A34A' : '#999', paddingVertical: 14, borderRadius: 8, flex: 1, alignItems: 'center', minHeight: 48 }}>
+                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Enviar WhatsApp</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TouchableOpacity onPress={exportPDF} style={{ backgroundColor: valid ? '#0ea5e9' : '#999', paddingVertical: 16, borderRadius: 10, flex: 1, alignItems: 'center', minHeight: 54 }}>
+                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>📥 Baixar PDF</Text>
+              </TouchableOpacity>
+              <TouchableOpacity disabled={!valid} onPress={sendWhatsApp} style={{ backgroundColor: valid ? '#16A34A' : '#999', paddingVertical: 16, borderRadius: 10, flex: 1, alignItems: 'center', minHeight: 54 }}>
+                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>📤 WhatsApp</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           {/* Cards de Resumo */}
           {(() => {
             const txs = (txQ.data || []);
             let inc = 0, exp = 0;
-            for (const tItem of txs) { if (tItem.type === 'income') inc += (tItem.amount_cents||0); else exp += (tItem.amount_cents||0); }
+            for (const tItem of txs) { if (tItem.type === 'income') inc += (tItem.amount_cents || 0); else exp += (tItem.amount_cents || 0); }
             const bal = inc - exp;
-            const days = valid ? (Math.floor((new Date(end).getTime() - new Date(start).getTime())/(1000*60*60*24)) + 1) : 1;
+            const days = valid ? (Math.floor((new Date(end).getTime() - new Date(start).getTime()) / (1000 * 60 * 60 * 24)) + 1) : 1;
             const avgInc = Math.round(inc / Math.max(1, days));
             const avgExp = Math.round(exp / Math.max(1, days));
             const avgBal = Math.round(bal / Math.max(1, days));
@@ -498,13 +554,13 @@ export default function RangeScreen() {
                 </View>
 
                 {/* CARD SALDO - LARGURA TOTAL */}
-                <View style={{ 
-                  width: '100%', 
-                  borderWidth: 1, 
-                  borderColor: bal >= 0 ? '#16A34A' : '#D90429', 
-                  borderRadius: 12, 
-                  padding: 16, 
-                  backgroundColor: bal >= 0 ? '#dcfce7' : '#fee2e2' 
+                <View style={{
+                  width: '100%',
+                  borderWidth: 1,
+                  borderColor: bal >= 0 ? '#16A34A' : '#D90429',
+                  borderRadius: 12,
+                  padding: 16,
+                  backgroundColor: bal >= 0 ? '#dcfce7' : '#fee2e2'
                 }}>
                   <Text style={{ color: bal >= 0 ? '#166534' : '#991b1b', fontWeight: '700', fontSize: 14 }}>💰 {t('balance')}</Text>
                   <Text style={{ color: bal >= 0 ? '#16A34A' : '#D90429', fontSize: 26, fontWeight: '800', marginTop: 8 }}>{formatCentsBRL(bal)}</Text>
@@ -513,7 +569,7 @@ export default function RangeScreen() {
               </View>
             );
           })()}
-          
+
           {(() => {
             const txs = (txQ.data || []);
             const map = new Map<string, { income: number; expense: number }>();
@@ -523,29 +579,29 @@ export default function RangeScreen() {
               map.set(tItem.date, v);
             }
             const daysA = Array.from(map.keys()).sort();
-            const dataInc = daysA.map(d => (map.get(d)?.income||0)/100);
-            const dataExp = daysA.map(d => (map.get(d)?.expense||0)/100);
+            const dataInc = daysA.map(d => (map.get(d)?.income || 0) / 100);
+            const dataExp = daysA.map(d => (map.get(d)?.expense || 0) / 100);
             const screenWidth = width;
             const n = Math.max(1, daysA.length);
-            
+
             // Largura dinâmica: cada barra tem no mínimo 40px, garantindo scroll horizontal
             const minBarWidth = 40;
             const barSpacing = 8;
             const barGroupWidth = minBarWidth + barSpacing;
             const h = Platform.OS === 'web' ? 220 : 280;
             const pad = 28;
-            
+
             // Largura total do gráfico baseada no número de dias
             const dynamicWidth = Math.max(screenWidth - 32, n * barGroupWidth + pad * 2);
             const w = dynamicWidth;
-            const iw = w - pad*2, ih = h - pad*2;
-            
-            const group = iw / n; 
+            const iw = w - pad * 2, ih = h - pad * 2;
+
+            const group = iw / n;
             const barW = Math.max(12, Math.min(group * 0.4, 32));
             const maxY = Math.max(1, ...dataInc, ...dataExp);
             const sx = (i: number) => pad + i * group;
             const sy = (v: number) => pad + ih - (v / maxY) * ih;
-            
+
             return (
               <View style={{ borderWidth: 1, borderColor: '#333', borderRadius: 8, padding: Platform.OS === 'web' ? 6 : 12, width: '100%' }}>
                 <Text style={{ color: theme.text, fontWeight: '700', fontSize: Platform.OS === 'web' ? 14 : 16, marginBottom: 12 }}>
@@ -553,24 +609,24 @@ export default function RangeScreen() {
                 </Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={true} style={{ width: '100%' }}>
                   <Svg width={w} height={h}>
-                    <SvgLine x1={pad} y1={pad} x2={pad} y2={pad+ih} stroke={theme.text} strokeWidth={1} />
-                    <SvgLine x1={pad} y1={pad+ih} x2={pad+iw} y2={pad+ih} stroke={theme.text} strokeWidth={1} />
+                    <SvgLine x1={pad} y1={pad} x2={pad} y2={pad + ih} stroke={theme.text} strokeWidth={1} />
+                    <SvgLine x1={pad} y1={pad + ih} x2={pad + iw} y2={pad + ih} stroke={theme.text} strokeWidth={1} />
                     {dataInc.map((v, i) => (
-                      <Rect key={`inc-${i}`} x={sx(i) - barW} y={sy(v)} width={barW} height={Math.max(1, pad+ih - sy(v))} fill="#16A34A" />
+                      <Rect key={`inc-${i}`} x={sx(i) - barW} y={sy(v)} width={barW} height={Math.max(1, pad + ih - sy(v))} fill="#16A34A" />
                     ))}
                     {dataExp.map((v, i) => (
-                      <Rect key={`exp-${i}`} x={sx(i) + 2} y={sy(v)} width={barW} height={Math.max(1, pad+ih - sy(v))} fill="#D90429" />
+                      <Rect key={`exp-${i}`} x={sx(i) + 2} y={sy(v)} width={barW} height={Math.max(1, pad + ih - sy(v))} fill="#D90429" />
                     ))}
                     {/* Labels dos dias */}
                     {daysA.map((day, i) => {
                       const dayLabel = day.substring(8, 10); // Apenas o dia (DD)
                       return (
-                        <SvgText 
-                          key={`day-${i}`} 
-                          x={sx(i)} 
-                          y={pad + ih + 16} 
-                          fill={theme.text} 
-                          fontSize="9" 
+                        <SvgText
+                          key={`day-${i}`}
+                          x={sx(i)}
+                          y={pad + ih + 16}
+                          fill={theme.text}
+                          fontSize="9"
                           textAnchor="middle"
                         >
                           {dayLabel}
@@ -578,7 +634,7 @@ export default function RangeScreen() {
                       );
                     })}
                     <SvgText x={pad} y={16} fill={theme.text} fontSize="10">{t('income')}</SvgText>
-                    <SvgText x={pad+70} y={16} fill={theme.text} fontSize="10">{t('expense')}</SvgText>
+                    <SvgText x={pad + 70} y={16} fill={theme.text} fontSize="10">{t('expense')}</SvgText>
                   </Svg>
                 </ScrollView>
                 <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 20, marginTop: 8 }}>
@@ -595,45 +651,45 @@ export default function RangeScreen() {
             );
           })()}
 
-        {/* SEÇÃO 5: Lista de Transações */}
-        <View style={{ width: '100%' }}>
-          <Text style={{ color: theme.text, fontWeight: '700', fontSize: Platform.OS === 'web' ? 14 : 16, marginBottom: 12 }}>
-            📋 Transações do período
-          </Text>
-          {isWideWeb ? (
-            <FlatList
-              style={{ }}
-              data={txQ.data || []}
-              keyExtractor={(item) => item.id}
-              ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
-              scrollEnabled
-              renderItem={({ item }) => (
-                <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#374151', borderRadius: 8, padding: 12, backgroundColor: theme.card }}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: theme.text, fontWeight: '700', fontSize: 13 }} numberOfLines={1}>{item.date} • {item.time || ''}</Text>
-                    <Text style={{ color: theme.text, fontSize: 12, marginTop: 2 }} numberOfLines={1}>{item.description || ''}</Text>
-                    <Text style={{ color: '#888', fontSize: 11, marginTop: 2 }} numberOfLines={1}>{item.category || '—'}</Text>
+          {/* SEÇÃO 5: Lista de Transações */}
+          <View style={{ width: '100%' }}>
+            <Text style={{ color: theme.text, fontWeight: '700', fontSize: Platform.OS === 'web' ? 14 : 16, marginBottom: 12 }}>
+              📋 Transações do período
+            </Text>
+            {isWideWeb ? (
+              <FlatList
+                style={{}}
+                data={txQ.data || []}
+                keyExtractor={(item) => item.id}
+                ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+                scrollEnabled
+                renderItem={({ item }) => (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#374151', borderRadius: 8, padding: 12, backgroundColor: theme.card }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: theme.text, fontWeight: '700', fontSize: 13 }} numberOfLines={1}>{item.date} • {item.time || ''}</Text>
+                      <Text style={{ color: theme.text, fontSize: 12, marginTop: 2 }} numberOfLines={1}>{item.description || ''}</Text>
+                      <Text style={{ color: '#888', fontSize: 11, marginTop: 2 }} numberOfLines={1}>{item.category || '—'}</Text>
+                    </View>
+                    <Text style={{ fontWeight: '800', fontSize: 16, color: item.type === 'income' ? '#16A34A' : '#D90429' }}>{formatCentsBRL(item.amount_cents || 0)}</Text>
                   </View>
-                  <Text style={{ fontWeight: '800', fontSize: 16, color: item.type === 'income' ? '#16A34A' : '#D90429' }}>{formatCentsBRL(item.amount_cents || 0)}</Text>
-                </View>
-              )}
-            />
-          ) : (
-            <View style={{ gap: 10 }}>
-              {(txQ.data || []).map((item) => (
-                <View key={item.id} style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#374151', borderRadius: 10, padding: 14, backgroundColor: theme.card }}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: theme.text, fontWeight: '700', fontSize: 14 }} numberOfLines={1}>{item.date} • {item.time || ''}</Text>
-                    <Text style={{ color: theme.text, fontSize: 13, marginTop: 2 }} numberOfLines={1}>{item.description || ''}</Text>
-                    <Text style={{ color: '#888', fontSize: 12, marginTop: 2 }} numberOfLines={1}>{item.category || '—'}</Text>
+                )}
+              />
+            ) : (
+              <View style={{ gap: 10 }}>
+                {(txQ.data || []).map((item) => (
+                  <View key={item.id} style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#374151', borderRadius: 10, padding: 14, backgroundColor: theme.card }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: theme.text, fontWeight: '700', fontSize: 14 }} numberOfLines={1}>{item.date} • {item.time || ''}</Text>
+                      <Text style={{ color: theme.text, fontSize: 13, marginTop: 2 }} numberOfLines={1}>{item.description || ''}</Text>
+                      <Text style={{ color: '#888', fontSize: 12, marginTop: 2 }} numberOfLines={1}>{item.category || '—'}</Text>
+                    </View>
+                    <Text style={{ fontWeight: '800', fontSize: 18, color: item.type === 'income' ? '#16A34A' : '#D90429' }}>{formatCentsBRL(item.amount_cents || 0)}</Text>
                   </View>
-                  <Text style={{ fontWeight: '800', fontSize: 18, color: item.type === 'income' ? '#16A34A' : '#D90429' }}>{formatCentsBRL(item.amount_cents || 0)}</Text>
-                </View>
-              ))}
-            </View>
-          )}
+                ))}
+              </View>
+            )}
+          </View>
         </View>
-      </View>
       </ScrollView>
     </View>
   );

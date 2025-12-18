@@ -1,16 +1,19 @@
 import React from 'react';
 import * as SecureStore from 'expo-secure-store';
 import { getCompanyProfile, type CompanyProfile } from '../repositories/company_profile';
+import { getCompanySegment } from '../repositories/companies';
 import { getCurrentCompanyId } from '../lib/company';
 
 export type Settings = {
   logoUrl: string | null;
   companyProfile: CompanyProfile | null;
+  companySegment: string | null;
 };
 
 const DEFAULTS: Settings = {
   logoUrl: null,
   companyProfile: null,
+  companySegment: null,
 };
 
 const SettingsContext = React.createContext<{
@@ -25,7 +28,7 @@ const KEY_LOGO = 'settings.logoUrl';
 async function getCompanyId(): Promise<string | null> {
   try {
     if (typeof window !== 'undefined') {
-      return window.sessionStorage.getItem('auth_company_id');
+      return window.localStorage.getItem('auth_company_id');
     }
     return await SecureStore.getItemAsync('auth_company_id');
   } catch {
@@ -45,9 +48,12 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     try {
       const companyId = await getCurrentCompanyId();
       if (!companyId) return;
-      
-      const profile = await getCompanyProfile(companyId);
-      setSettings(s => ({ ...s, companyProfile: profile }));
+
+      const [profile, segment] = await Promise.all([
+        getCompanyProfile(companyId),
+        getCompanySegment(companyId),
+      ]);
+      setSettings(s => ({ ...s, companyProfile: profile, companySegment: segment }));
     } catch (error) {
       console.error('Erro ao carregar perfil do negócio:', error);
     }
@@ -64,13 +70,13 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         const k = cid ? `${KEY_LOGO}.${cid}` : KEY_LOGO;
         const v = await SecureStore.getItemAsync(k);
         if (v != null) { setSettings(s => ({ ...s, logoUrl: v })); return; }
-      } catch {}
+      } catch { }
       try {
         const cid = await getCompanyId();
         const k = cid ? `${KEY_LOGO}.${cid}` : KEY_LOGO;
         const v2 = typeof window !== 'undefined' ? window.localStorage.getItem(k) : null;
         if (v2 != null) setSettings(s => ({ ...s, logoUrl: v2 }));
-      } catch {}
+      } catch { }
     })();
   }, []);
 
@@ -80,13 +86,13 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     try {
       if (url) await SecureStore.setItemAsync(k, url);
       else await SecureStore.deleteItemAsync(k);
-    } catch {}
+    } catch { }
     try {
       if (typeof window !== 'undefined') {
         if (url) window.localStorage.setItem(k, url);
         else window.localStorage.removeItem(k);
       }
-    } catch {}
+    } catch { }
     setSettings(s => ({ ...s, logoUrl: url }));
   }, []);
 

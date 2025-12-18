@@ -15,9 +15,10 @@ import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
+import { BackupWarning } from '../components/WarningBox';
 
 export default function BackupScreen() {
-  const { theme } = useThemeCtx();
+  const { theme, mode } = useThemeCtx();
   const [autoBackupEnabled, setAutoBackupEnabled] = useState(false);
   const [backupFrequency, setBackupFrequency] = useState<'weekly' | 'monthly'>('monthly');
   const [lastBackupDate, setLastBackupDate] = useState<string | null>(null);
@@ -124,8 +125,8 @@ export default function BackupScreen() {
       } else {
         // Gerar CSV simplificado das transações
         const csvHeader = 'Data,Tipo,Descrição,Valor,Categoria,Forma Pagamento\n';
-        const csvRows = backupData.transactions?.map((t: any) => 
-          `${t.date},${t.type === 'income' ? 'Receita' : 'Despesa'},${t.description},${t.amount},${t.category || ''},${t.payment_method || ''}` 
+        const csvRows = backupData.transactions?.map((t: any) =>
+          `${t.date},${t.type === 'income' ? 'Receita' : 'Despesa'},${t.description},${t.amount},${t.category || ''},${t.payment_method || ''}`
         ).join('\n') || '';
         fileContent = csvHeader + csvRows;
         mimeType = 'text/csv';
@@ -180,11 +181,11 @@ export default function BackupScreen() {
   const toggleAutoBackup = async (value: boolean) => {
     setAutoBackupEnabled(value);
     await saveBackupSettings(value, backupFrequency);
-    
+
     if (value) {
       Alert.alert(
         'Backup Automático Ativado',
-        `Seus dados serão salvos automaticamente ${backupFrequency === 'weekly' ? 'semanalmente' : 'mensalmente'}. Você receberá uma notificação quando o backup estiver pronto.` 
+        `Seus dados serão salvos automaticamente ${backupFrequency === 'weekly' ? 'semanalmente' : 'mensalmente'}. Você receberá uma notificação quando o backup estiver pronto.`
       );
     }
   };
@@ -196,13 +197,16 @@ export default function BackupScreen() {
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: theme.background }]}>
-      <View style={styles.header}>
-        <Ionicons name="cloud-download-outline" size={48} color={theme.primary} />
-        <Text style={[styles.title, { color: theme.text }]}>Backup de Dados</Text>
-        <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
+      <View style={[styles.header, { alignItems: 'center' }]}>
+        <Ionicons name="cloud-download-outline" size={48} color={mode === 'dark' ? theme.primary : theme.negative} />
+        <Text style={[styles.title, { color: mode === 'dark' ? theme.primary : theme.negative, textAlign: 'center' }]}>Backup de Dados</Text>
+        <Text style={[styles.subtitle, { color: theme.textSecondary, textAlign: 'center' }]}>
           Mantenha seus dados financeiros seguros com backups automáticos
         </Text>
       </View>
+
+      {/* Warning Box */}
+      <BackupWarning />
 
       {/* Backup Manual */}
       <View style={[styles.section, { backgroundColor: theme.card }]}>
@@ -327,7 +331,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 24,
-    fontWeight: 'bold',
+    fontWeight: '800',
     marginTop: 16,
   },
   subtitle: {

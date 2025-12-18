@@ -16,6 +16,8 @@ interface CompanyRequest {
   address: string | null;
   cnpj: string | null;
   founded_on: string | null;
+  segment?: string | null;
+  discount_coupon_code?: string | null;
   created_at: string;
   approved?: boolean;
 }
@@ -201,16 +203,18 @@ export default function AdminRequestsScreen() {
 
   const renderRequest = ({ item }: { item: CompanyRequest }) => {
     return (
-      <View style={[styles.requestCard, { backgroundColor: theme.card, borderColor: '#ddd' }]}>
+      <View style={[styles.requestCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
         <View style={{ flex: 1 }}>
           <Text style={[styles.companyName, { color: theme.text }]}>{item.company_name}</Text>
-          <Text style={[styles.requestInfo, { color: '#888' }]}>Proprietário: {item.owner_name}</Text>
-          <Text style={[styles.requestInfo, { color: '#888' }]}>Telefone: {item.phone}</Text>
-          {item.cnpj ? <Text style={[styles.requestInfo, { color: '#888' }]}>CNPJ: {item.cnpj}</Text> : null}
-          {item.address ? <Text style={[styles.requestInfo, { color: '#888' }]}>Endereço: {item.address}</Text> : null}
-          {item.founded_on ? <Text style={[styles.requestInfo, { color: '#888' }]}>Fundada em: {item.founded_on}</Text> : null}
+          <Text style={[styles.requestInfo, { color: theme.textSecondary }]}>Proprietário: {item.owner_name}</Text>
+          <Text style={[styles.requestInfo, { color: theme.textSecondary }]}>Telefone: {item.phone}</Text>
+          {item.segment ? <Text style={[styles.requestInfo, { color: theme.textSecondary }]}>Segmento: {item.segment}</Text> : null}
+          {item.discount_coupon_code ? <Text style={[styles.requestInfo, { color: theme.textSecondary }]}>Cupom: {item.discount_coupon_code}</Text> : null}
+          {item.cnpj ? <Text style={[styles.requestInfo, { color: theme.textSecondary }]}>CNPJ: {item.cnpj}</Text> : null}
+          {item.address ? <Text style={[styles.requestInfo, { color: theme.textSecondary }]}>Endereço: {item.address}</Text> : null}
+          {item.founded_on ? <Text style={[styles.requestInfo, { color: theme.textSecondary }]}>Fundada em: {item.founded_on}</Text> : null}
 
-          <Text style={[styles.requestDate, { color: '#888' }]}>
+          <Text style={[styles.requestDate, { color: theme.textSecondary }]}>
             Solicitado em: {new Date(item.created_at).toLocaleDateString('pt-BR')}
           </Text>
         </View>
@@ -242,7 +246,7 @@ export default function AdminRequestsScreen() {
               refreshing={requestsQuery.isFetching}
               onRefresh={() => requestsQuery.refetch()}
               ListEmptyComponent={
-                <Text style={{ color: '#888', textAlign: 'center', marginTop: 20 }}>
+                <Text style={{ color: theme.textSecondary, textAlign: 'center', marginTop: 20 }}>
                   Nenhuma solicitação pendente
                 </Text>
               }
@@ -259,7 +263,7 @@ export default function AdminRequestsScreen() {
             
             <View style={{ marginBottom: 16 }}>
               <Text style={{ color: theme.text, fontWeight: '700' }}>{approving.company_name}</Text>
-              <Text style={{ color: '#888', fontSize: 12 }}>{approving.phone}</Text>
+              <Text style={{ color: theme.textSecondary, fontSize: 12 }}>{approving.phone}</Text>
             </View>
 
             <View style={{ gap: 8 }}>
@@ -329,7 +333,7 @@ const styles = StyleSheet.create({
   requestCard: { borderWidth: 1, borderRadius: 8, padding: 12, marginBottom: 8 },
   companyName: { fontSize: 16, fontWeight: '700', marginBottom: 4 },
   requestInfo: { fontSize: 12, marginBottom: 2 },
-  messageBox: { marginTop: 8, padding: 8, backgroundColor: '#f9fafb', borderRadius: 6 },
+  messageBox: { marginTop: 8, padding: 8, borderRadius: 6 },
   messageLabel: { fontSize: 12, fontWeight: '600', marginBottom: 4 },
   messageText: { fontSize: 12 },
   requestDate: { fontSize: 11, marginTop: 8 },

@@ -15,7 +15,7 @@ import NotificationService from '../services/notificationService';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
 export default function NotificationSettingsScreen() {
-  const { theme } = useThemeCtx();
+  const { theme, mode } = useThemeCtx();
   const [loading, setLoading] = useState(true);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   
@@ -111,9 +111,9 @@ export default function NotificationSettingsScreen() {
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: theme.background }]}>
-      <View style={styles.header}>
-        <Text style={[styles.title, { color: theme.text }]}>Configurações de Notificação</Text>
-        <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
+      <View style={[styles.header, { alignItems: 'center' }]}>
+        <Text style={[styles.title, { color: mode === 'dark' ? theme.primary : theme.negative, textAlign: 'center' }]}>Configurações de Notificação</Text>
+        <Text style={[styles.subtitle, { color: theme.textSecondary, textAlign: 'center' }]}>
           Gerencie alertas e lembretes financeiros
         </Text>
       </View>
@@ -313,7 +313,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 24,
-    fontWeight: 'bold',
+    fontWeight: '800',
     marginBottom: 4,
   },
   subtitle: {

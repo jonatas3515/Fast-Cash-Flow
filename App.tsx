@@ -1,4 +1,5 @@
 import React from 'react';
+import { Platform } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import Tabs from './src/navigation/Tabs';
@@ -11,20 +12,77 @@ import { supabase } from './src/lib/supabase';
 import { SettingsProvider } from './src/settings/SettingsProvider';
 import { ToastProvider } from './src/ui/ToastProvider';
 import { I18nProvider } from './src/i18n/I18nProvider';
-import { ensureAnonAuth, syncAll, subscribeRealtime } from './src/lib/sync';
+import { ensureAnonAuth, syncAll } from './src/lib/sync';
+// getCurrentCompanyId removido - CompanyContext gerencia o Realtime
 import SyncIndicator from './src/ui/SyncIndicator';
+import { CompanyProvider } from './src/contexts/CompanyContext';
+import { OnboardingProvider } from './src/contexts/OnboardingContext';
+import SyncMonitor from './src/lib/syncMonitor';
 import LoginGate from './src/auth/LoginGate';
 import RegisterScreen from './src/auth/RegisterScreen';
+import LandingPage from './src/auth/LandingPage';
 import { ScrollbarStyles } from './src/components/ScrollbarStyles';
 import NotificationService from './src/services/notificationService';
+import { useWebAutoLogout, useAndroidInactivityLogout } from './src/hooks/useWebAutoLogout';
+import LogoutWarningBanner from './src/components/LogoutWarningBanner';
+import OrderAlertModal from './src/components/OrderAlertModal';
+import * as SecureStore from 'expo-secure-store';
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Refetch automático quando a janela ganha foco
+      refetchOnWindowFocus: true,
+      // Refetch quando reconecta à internet
+      refetchOnReconnect: true,
+      // Manter dados frescos - stale após 0ms (sempre refetch)
+      staleTime: 0,
+      // Cache por 5 minutos
+      gcTime: 5 * 60 * 1000,
+      // Retry automático em caso de erro
+      retry: 2,
+      retryDelay: 1000,
+    },
+  },
+});
 
 function AppInner() {
+  const [authBootstrapped, setAuthBootstrapped] = React.useState(false);
   const [ready, setReady] = React.useState(false);
   const [authed, setAuthed] = React.useState(false);
-  const [role, setRole] = React.useState<'admin'|'user'>('user');
+  const [role, setRole] = React.useState<'admin' | 'user'>('user');
   const { navTheme } = useThemeCtx();
+
+  // Usar hooks de logout automático
+  const { showWarning, timeLeft, extendSession } = useWebAutoLogout();
+  useAndroidInactivityLogout();
+
+  // Bootstrap session from local storage / secure store (so returning users don't need to open Login first)
+  React.useEffect(() => {
+    (async () => {
+      try {
+        let ok: string | null = null;
+        let storedRole: 'admin' | 'user' = 'user';
+
+        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+          ok = window.localStorage.getItem('auth_ok');
+          storedRole = (window.localStorage.getItem('auth_role') as 'admin' | 'user') || 'user';
+        } else {
+          ok = await SecureStore.getItemAsync('auth_ok');
+          storedRole = (await SecureStore.getItemAsync('auth_role') as 'admin' | 'user') || 'user';
+        }
+
+        if (ok === '1') {
+          setRole(storedRole);
+          setAuthed(true);
+        }
+      } catch {
+        // ignore
+      } finally {
+        setAuthBootstrapped(true);
+      }
+    })();
+  }, []);
 
   React.useEffect(() => {
     if (!authed) return;
@@ -33,6 +91,7 @@ function AppInner() {
         await migrate();
         await ensureAnonAuth();
         await NotificationService.initialize(); // Inicializar notificações
+        await SyncMonitor.loadLogs(); // Carregar logs de sincronização
         await syncAll();
       } catch (e) {
         console.warn('DB migrate error', e);
@@ -43,19 +102,40 @@ function AppInner() {
   }, [authed]);
 
   React.useEffect(() => {
-    // periodic sync every 30s
+    // periodic sync every 3s para garantir sincronização MUITO rápida
     if (!authed) return;
+
+    // Sync imediato ao autenticar
+    console.log('[🚀 APP] Sync inicial ao autenticar...');
+    syncAll().catch(() => { });
+
     const id = setInterval(() => {
-      syncAll().catch(() => {});
-    }, 5000);
-    const unsubscribe = subscribeRealtime();
-    return () => { clearInterval(id); unsubscribe(); };
+      console.log('[⏰ APP] Sync periódico a cada 3s...');
+      syncAll().catch((e) => console.warn('[⚠️ APP] Sync periódico falhou:', e));
+    }, 3000); // 3 segundos para sincronização mais agressiva
+    return () => { clearInterval(id); };
   }, [authed]);
+
+  // Realtime Sync é gerenciado pelo CompanyContext
+  // Não duplicar aqui para evitar conflitos de canais
 
   // Listen for Supabase auth sign-out to return to login
   React.useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+    const { data: sub } = supabase.auth.onAuthStateChange(async (event) => {
+      console.log('🔐 Auth event:', event);
       if (event === 'SIGNED_OUT') {
+        console.log('🚪 Logout detectado, limpando estado...');
+        // Limpar sincronização
+        try {
+          const { cleanupRealtimeSync, clearCompanyIdCache } = await import('./src/lib/sync');
+          await cleanupRealtimeSync();
+          clearCompanyIdCache();
+        } catch (e) {
+          console.warn('Erro ao limpar sync:', e);
+        }
+        // Limpar QueryClient
+        queryClient.clear();
+        // Resetar estado
         setAuthed(false);
         setReady(false);
       }
@@ -77,9 +157,36 @@ function AppInner() {
 
   const AuthStack = createNativeStackNavigator();
   if (!authed) {
+    if (!authBootstrapped) return null;
+
+    function LandingScreen({ navigation }: any) {
+      const [trialDays, setTrialDays] = React.useState(30);
+
+      React.useEffect(() => {
+        if (typeof window !== 'undefined') {
+          try {
+            const saved = window.localStorage.getItem('fastcashflow_admin_settings');
+            if (saved) {
+              const parsed = JSON.parse(saved);
+              if (parsed.trialDays) setTrialDays(parseInt(parsed.trialDays, 10) || 30);
+            }
+          } catch { }
+        }
+      }, []);
+
+      return (
+        <LandingPage
+          trialDays={trialDays}
+          onRegister={() => navigation.navigate('Cadastro')}
+          onLogin={() => navigation.navigate('Login')}
+        />
+      );
+    }
+
     return (
       <NavigationContainer theme={navTheme as any}>
-        <AuthStack.Navigator>
+        <AuthStack.Navigator id={undefined}>
+          <AuthStack.Screen name="Landing" component={LandingScreen} options={{ headerShown: false }} />
           <AuthStack.Screen name="Login" options={{ headerShown: false }}>
             {() => <LoginGate onOk={(r) => { setRole(r); setAuthed(true); }} />}
           </AuthStack.Screen>
@@ -95,11 +202,22 @@ function AppInner() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <NavigationContainer theme={navTheme as any}>
-        <StatusBar style="auto" />
-        {role === 'admin' ? <AdminTabs /> : <Tabs />}
-        <SyncIndicator />
-      </NavigationContainer>
+      <CompanyProvider>
+        <OnboardingProvider>
+          <NavigationContainer theme={navTheme as any}>
+            <StatusBar style="auto" />
+            {role === 'admin' ? <AdminTabs /> : <Tabs />}
+            {/* Order Alert Modal - mostra alertas de encomendas próximas */}
+            {role !== 'admin' && <OrderAlertModal />}
+          </NavigationContainer>
+          {/* Logout warning banner - shows 2min before auto logout */}
+          <LogoutWarningBanner
+            showWarning={showWarning}
+            timeLeft={timeLeft}
+            extendSession={extendSession}
+          />
+        </OnboardingProvider>
+      </CompanyProvider>
     </QueryClientProvider>
   );
 }

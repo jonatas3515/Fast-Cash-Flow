@@ -10,56 +10,92 @@ type DB = {
 };
 
 let _db: DB | null = null;
-const STORAGE_KEY = 'fastcashflow_transactions_local_v1';
-const SYNC_KEY = 'fastcashflow_sync_state_v1';
+let _currentCompanyId: string | null = null;
+const STORAGE_KEY_BASE = 'fastcashflow_transactions_local_v2';
+const SYNC_KEY_BASE = 'fastcashflow_sync_state_v2';
 
 function getCompanyId(): string | null {
   try {
     if (typeof window === 'undefined') return null;
-    return window.sessionStorage.getItem('auth_company_id');
+    return window.localStorage.getItem('auth_company_id');
   } catch { return null; }
 }
 
+function getStorageKey(): string {
+  const cid = getCompanyId();
+  return cid ? `${STORAGE_KEY_BASE}_${cid}` : STORAGE_KEY_BASE;
+}
+
+function getSyncKey(): string {
+  const cid = getCompanyId();
+  return cid ? `${SYNC_KEY_BASE}_${cid}` : SYNC_KEY_BASE;
+}
+
 export const getDb = (): DB => {
+  // Verificar se mudou de empresa - se sim, recarregar dados
+  const currentCid = getCompanyId();
+  if (_db && _currentCompanyId !== currentCid) {
+    console.log('[🔄 DB.WEB] Empresa mudou de', _currentCompanyId, 'para', currentCid, '- recarregando dados');
+    _db = null;
+  }
+
   if (_db) return _db;
+
+  _currentCompanyId = currentCid;
   let rows: any[] = [];
   let lastSync: string | null = null;
+
   if (typeof window !== 'undefined') {
     try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
+      const storageKey = getStorageKey();
+      const syncKey = getSyncKey();
+      console.log('[📂 DB.WEB] Carregando dados de:', storageKey);
+      const raw = window.localStorage.getItem(storageKey);
       if (raw) rows = JSON.parse(raw) || [];
-      const s = window.localStorage.getItem(SYNC_KEY);
+      const s = window.localStorage.getItem(syncKey);
       if (s) lastSync = JSON.parse(s) || null;
-    } catch {}
+      console.log('[📂 DB.WEB] Carregados', rows.length, 'registros para empresa:', currentCid);
+    } catch (e) {
+      console.error('[❌ DB.WEB] Erro ao carregar dados:', e);
+    }
   }
+
   const persist = () => {
     if (typeof window === 'undefined') return;
-    try { 
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(rows)); 
-      console.log('[💾 PERSIST] Salvando', rows.length, 'transações no localStorage');
+    const storageKey = getStorageKey();
+    const syncKey = getSyncKey();
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(rows));
+      console.log('[💾 PERSIST] Salvando', rows.length, 'transações em', storageKey);
     } catch (e) {
       console.error('[❌ PERSIST] Erro ao salvar transações:', e);
     }
-    try { 
-      window.localStorage.setItem(SYNC_KEY, JSON.stringify(lastSync)); 
+    try {
+      window.localStorage.setItem(syncKey, JSON.stringify(lastSync));
     } catch (e) {
       console.error('[❌ PERSIST] Erro ao salvar sync state:', e);
     }
   };
   _db = {
-    execAsync: async () => {},
+    execAsync: async () => { },
     runAsync: async (sql: string, ...args: any[]) => {
       if (sql.startsWith('INSERT INTO transactions_local') && !sql.includes('ON CONFLICT')) {
-        const [id, type, date, time, datetime, description, category, amount_cents, source_device, version, updated_at] = args;
-        const company_id = getCompanyId();
-        rows.push({ id, type, date, time, datetime, description, category, amount_cents, source_device, version, updated_at, deleted_at: null, dirty: 1, company_id });
+        // Ordem dos args: id, type, date, time, datetime, description, category, clientname, expensetype, amount_cents, source_device, version, updated_at, deleted_at, company_id
+        // Nota: dirty é literal "1" no SQL, não é um placeholder
+        const [id, type, date, time, datetime, description, category, clientname, expensetype, amount_cents, source_device, version, updated_at, deleted_at, company_id] = args;
+        const finalCompanyId = company_id || getCompanyId();
+        console.log('[💾 DB.WEB] INSERT transação:', { id, type, date, amount_cents, expensetype, company_id: finalCompanyId });
+        rows.push({ id, type, date, time, datetime, description, category, clientname, expensetype: expensetype || 'operational', amount_cents, source_device, version, updated_at, deleted_at: deleted_at || null, dirty: 1, company_id: finalCompanyId });
         persist();
         return;
       }
       if (sql.startsWith('INSERT INTO transactions_local') && sql.includes('ON CONFLICT')) {
-        const [id, type, date, time, datetime, description, category, amount_cents, source_device, version, updated_at, deleted_at] = args;
+        // Ordem dos args para sync pull: id, type, date, time, datetime, description, category, clientname, expensetype, amount_cents, source_device, version, updated_at, deleted_at, company_id
+        // Nota: dirty é literal "0" no SQL para sync
+        const [id, type, date, time, datetime, description, category, clientname, expensetype, amount_cents, source_device, version, updated_at, deleted_at, company_id] = args;
         const i = rows.findIndex(r => r.id === id);
-        const base = { id, type, date, time, datetime, description, category, amount_cents, source_device, version, updated_at, deleted_at, dirty: 0, company_id: getCompanyId() } as any;
+        const finalCompanyId = company_id || getCompanyId();
+        const base = { id, type, date, time, datetime, description, category, clientname, expensetype: expensetype || 'operational', amount_cents, source_device, version, updated_at, deleted_at, dirty: 0, company_id: finalCompanyId } as any;
         if (i >= 0) rows[i] = { ...rows[i], ...base };
         else rows.push(base);
         persist();
@@ -96,20 +132,35 @@ export const getDb = (): DB => {
       const cid = getCompanyId();
       if (sql.startsWith('SELECT * FROM transactions_local WHERE date = ?')) {
         const date = args[0];
-        return rows.filter(r => r.company_id === cid && r.date === date && !r.deleted_at).sort((a,b) => (b.datetime as string).localeCompare(a.datetime)) as T[];
+        const filtered = rows.filter(r => r.company_id === cid && r.date === date && !r.deleted_at).sort((a, b) => (b.datetime as string).localeCompare(a.datetime));
+        console.log('[🔍 DB.WEB] Query by date:', date, 'Company:', cid, 'Found:', filtered.length);
+        return filtered as T[];
+      }
+      if (sql.includes('WHERE date >= ? AND date <= ?') && sql.includes('company_id = ?')) {
+        const start = args[0] as string;
+        const end = args[1] as string;
+        const queryCompanyId = args[2] as string || cid;
+        const filtered = rows
+          .filter(r => r.company_id === queryCompanyId && !r.deleted_at && r.date >= start && r.date <= end)
+          .sort((a, b) => (b.datetime as string).localeCompare(a.datetime as string));
+        console.log('[🔍 DB.WEB] Query by range:', start, '-', end, 'Company:', queryCompanyId, 'Found:', filtered.length);
+        return filtered as T[];
       }
       if (sql.includes('WHERE date >= ? AND date <= ?')) {
         const start = args[0] as string;
         const end = args[1] as string;
-        return rows
+        const filtered = rows
           .filter(r => r.company_id === cid && !r.deleted_at && r.date >= start && r.date <= end)
-          .sort((a,b) => (a.datetime as string).localeCompare(b.datetime as string)) as T[];
+          .sort((a, b) => (b.datetime as string).localeCompare(a.datetime as string));
+        console.log('[🔍 DB.WEB] Query by range (no cid):', start, '-', end, 'Company:', cid, 'Found:', filtered.length);
+        return filtered as T[];
       }
       if (sql.includes('WHERE dirty = 1')) {
-        const dirtyRows = rows.filter(r => r.company_id === cid && r.dirty === 1);
-        console.log('[🔍 DB] Query dirty rows - Company ID:', cid, 'Found:', dirtyRows.length);
+        const queryCompanyId = args[0] as string || cid;
+        const dirtyRows = rows.filter(r => r.company_id === queryCompanyId && r.dirty === 1);
+        console.log('[🔍 DB.WEB] Query dirty rows - Company ID:', queryCompanyId, 'Found:', dirtyRows.length);
         if (dirtyRows.length > 0) {
-          console.log('[🔍 DB] Primeiro registro dirty:', dirtyRows[0]);
+          console.log('[🔍 DB.WEB] Primeiro registro dirty:', dirtyRows[0]);
         }
         return dirtyRows as T[];
       }
@@ -138,4 +189,11 @@ export const getDb = (): DB => {
 
 export const migrate = async () => {
   // no-op on web
+};
+
+// Função para forçar reload do DB (útil ao trocar de empresa)
+export const resetDb = () => {
+  console.log('[🔄 DB.WEB] Resetando DB...');
+  _db = null;
+  _currentCompanyId = null;
 };
