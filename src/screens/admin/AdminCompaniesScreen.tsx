@@ -23,9 +23,23 @@ interface Company {
   deleted_at?: string | null;
   deleted_by?: string | null;
   status?: string;
+  segment?: string;
 }
 
 type TabType = 'active' | 'deleted';
+
+// Função para formatar o nome da empresa com o segmento
+function getCompanyDisplayName(company: Company): string {
+  const segmentMap: { [key: string]: string } = {
+    'lanchonete': 'Lanchonete',
+    'servicos': 'Serviços',
+    'doceria': 'Doceria',
+    'outros': 'Outros'
+  };
+  
+  const segment = company.segment ? segmentMap[company.segment] || company.segment : null;
+  return segment ? `${company.name} - ${segment}` : company.name;
+}
 
 // Supabase repository functions
 async function getCompanies(tab: TabType = 'active'): Promise<Company[]> {
@@ -482,25 +496,25 @@ export default function AdminCompaniesScreen() {
     const effectiveLogoUrl = (item as any).logo_url || (isFastSavorys ? fastSavorysLogo : appDefaultLogo);
 
     return (
-      <View style={[styles.companyCard, { backgroundColor: theme.card, borderColor: isDeleted ? '#ef4444' : '#ddd' }]}>
+      <View style={[styles.companyCard, { backgroundColor: theme.card, borderColor: isDeleted ? theme.negative : theme.border }]}>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.companyName, { color: theme.text }]}>{`${index + 1}. ${item.name}`}</Text>
+          <Text style={[styles.companyName, { color: theme.text }]}>{`${index + 1}. ${getCompanyDisplayName(item)}`}</Text>
           {isDeleted && (
-            <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: '700', marginBottom: 4 }}>
+            <Text style={{ color: theme.negative, fontSize: 11, fontWeight: '700', marginBottom: 4 }}>
               🗑️ Excluída em {new Date(item.deleted_at!).toLocaleDateString('pt-BR')} • Será removida em {daysUntilPermanentDelete} dias
             </Text>
           )}
           {effectiveLogoUrl ? (
-            <View style={{ width: 96, height: 48, borderRadius: 6, overflow: 'hidden', borderWidth: 1, borderColor: '#ddd', marginBottom: 6 }}>
+            <View style={{ width: 96, height: 48, borderRadius: 6, overflow: 'hidden', borderWidth: 1, borderColor: theme.border, marginBottom: 6 }}>
               {/* @ts-ignore */}
               <img src={effectiveLogoUrl} style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#111' }} />
             </View>
           ) : null}
-          <Text style={[styles.companyInfo, { color: '#888' }]}>Usuário: {item.username}</Text>
-          <Text style={[styles.companyInfo, { color: '#888' }]}>Email: {item.email}</Text>
-          <Text style={[styles.companyInfo, { color: '#888' }]}>Telefone: {item.phone}</Text>
+          <Text style={[styles.companyInfo, { color: theme.textSecondary }]}>Usuário: {item.username}</Text>
+          <Text style={[styles.companyInfo, { color: theme.textSecondary }]}>Email: {item.email}</Text>
+          <Text style={[styles.companyInfo, { color: theme.textSecondary }]}>Telefone: {item.phone}</Text>
           {!!(item as any).logo_url && (
-            <Text style={[styles.companyInfo, { color: '#888' }]}>Logo: {(item as any).logo_url}</Text>
+            <Text style={[styles.companyInfo, { color: theme.textSecondary }]}>Logo: {(item as any).logo_url}</Text>
           )}
           <View style={styles.planInfo}>
             <Text style={{ color: theme.text }}>
