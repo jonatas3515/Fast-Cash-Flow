@@ -637,53 +637,128 @@ export default function LandingPage({ trialDays, onRegister, onLogin }: Props) {
                 {/* Evolution Section */}
                 <View style={{ backgroundColor: mode === 'dark' ? '#111827' : '#F3F4F6', paddingTop: SECTION_PADDING, paddingBottom: SECTION_PADDING }}>
                     <View style={sectionStyle}>
-                        <Text style={{ color: theme.text, fontSize: isMobile ? 24 : 28, fontWeight: '800', textAlign: 'center', marginBottom: 12 }}>Em constante evolução</Text>
-                        <Text style={{ color: theme.textSecondary, fontSize: 14, textAlign: 'center', maxWidth: 500, alignSelf: 'center', marginBottom: 24, lineHeight: 22 }}>
-                            Recebemos sugestões dos usuários e lançamos melhorias de forma contínua.
-                        </Text>
-                        <View style={{ backgroundColor: theme.card, borderRadius: 16, padding: 24, maxWidth: 480, alignSelf: 'center', width: '100%', borderWidth: 1, borderColor: theme.border }}>
-                            {DYNAMIC_EVOLUTION_POINTS.map((point, index) => (
-                                <View key={index} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: index < DYNAMIC_EVOLUTION_POINTS.length - 1 ? 14 : 0 }}>
-                                    <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: mode === 'dark' ? 'rgba(22,163,74,0.2)' : 'rgba(22,163,74,0.1)', alignItems: 'center', justifyContent: 'center' }}>
-                                        <Text style={{ color: theme.primary, fontSize: 14, fontWeight: '700' }}>✓</Text>
-                                    </View>
-                                    <Text style={{ color: theme.text, fontSize: 14, flex: 1 }}>{point}</Text>
+                        <View
+                            style={{
+                                flexDirection: isDesktop ? 'row' : 'column',
+                                alignItems: isDesktop ? 'stretch' : 'center',
+                                gap: isDesktop ? 56 : 28,
+                            }}
+                        >
+                            <View style={{ flex: isDesktop ? 1 : undefined, width: '100%', maxWidth: isDesktop ? 560 : undefined, justifyContent: isDesktop ? 'space-between' : undefined }}>
+                                <View style={{ alignItems: 'center' }}>
+                                    <Text style={{ color: theme.text, fontSize: isMobile ? 24 : 28, fontWeight: '800', textAlign: 'center', marginBottom: 12 }}>Em constante evolução</Text>
+                                    <Text style={{ color: theme.textSecondary, fontSize: 14, textAlign: 'center', maxWidth: 520, alignSelf: 'center', marginBottom: 24, lineHeight: 22 }}>
+                                        Recebemos sugestões dos usuários e lançamos melhorias de forma contínua.
+                                    </Text>
                                 </View>
-                            ))}
+                                <View style={{ backgroundColor: theme.card, borderRadius: 16, padding: 24, maxWidth: isDesktop ? 520 : 480, alignSelf: 'center', width: '100%', borderWidth: 1, borderColor: theme.border }}>
+                                    {DYNAMIC_EVOLUTION_POINTS.map((point, index) => (
+                                        <View key={index} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: index < DYNAMIC_EVOLUTION_POINTS.length - 1 ? 14 : 0 }}>
+                                            <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: mode === 'dark' ? 'rgba(22,163,74,0.2)' : 'rgba(22,163,74,0.1)', alignItems: 'center', justifyContent: 'center' }}>
+                                                <Text style={{ color: theme.primary, fontSize: 14, fontWeight: '700' }}>✓</Text>
+                                            </View>
+                                            <Text style={{ color: theme.text, fontSize: 14, flex: 1 }}>{point}</Text>
+                                        </View>
+                                    ))}
+                                </View>
+                            </View>
+
+                            <View style={{ flex: isDesktop ? 1 : undefined, width: '100%', maxWidth: isDesktop ? 520 : undefined, alignItems: 'center', justifyContent: isDesktop ? 'space-between' : undefined }}>
+                                <Text style={{ color: theme.text, fontSize: isMobile ? 22 : 26, fontWeight: '800', textAlign: 'center' }}>Pronto para organizar seu caixa?</Text>
+                                <View style={{ width: '100%', alignItems: 'center', justifyContent: 'center', flex: isDesktop ? 1 : undefined, paddingVertical: isDesktop ? 0 : 18 }}>
+                                    <TouchableOpacity
+                                        onPress={onRegister}
+                                        style={{ backgroundColor: theme.accent, paddingHorizontal: 36, paddingVertical: 18, borderRadius: 14, shadowColor: theme.accent, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.35, shadowRadius: 14, elevation: 8, alignSelf: 'center' }}
+                                    >
+                                        <Text style={{ color: '#111', fontWeight: '800', fontSize: 18 }}>Comece agora – {trialDays} dias grátis</Text>
+                                    </TouchableOpacity>
+                                </View>
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 14 }}>
+                                    {SECURITY_BADGES.map((badge, index) => (
+                                        <View key={index} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.card, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 24, borderWidth: 1, borderColor: theme.border }}>
+                                            <Text style={{ fontSize: 16 }}>{badge.icon}</Text>
+                                            <Text style={{ color: theme.textSecondary, fontSize: 13, fontWeight: '500' }}>{badge.label}</Text>
+                                        </View>
+                                    ))}
+                                </View>
+                            </View>
                         </View>
                     </View>
                 </View>
 
                 {/* Final CTA */}
-                <View style={{ ...sectionStyle, alignItems: 'center', paddingTop: SECTION_PADDING, paddingBottom: SECTION_PADDING - 8 }}>
-                    <Text style={{ color: theme.text, fontSize: isMobile ? 22 : 26, fontWeight: '800', textAlign: 'center', marginBottom: 20 }}>Pronto para organizar seu caixa?</Text>
-                    <TouchableOpacity
-                        onPress={onRegister}
-                        style={{ backgroundColor: theme.accent, paddingHorizontal: 36, paddingVertical: 18, borderRadius: 14, shadowColor: theme.accent, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.35, shadowRadius: 14, elevation: 8 }}
-                    >
-                        <Text style={{ color: '#111', fontWeight: '800', fontSize: 18 }}>Comece agora – {trialDays} dias grátis</Text>
-                    </TouchableOpacity>
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 14, marginTop: 24 }}>
-                        {SECURITY_BADGES.map((badge, index) => (
-                            <View key={index} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.card, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 24, borderWidth: 1, borderColor: theme.border }}>
-                                <Text style={{ fontSize: 16 }}>{badge.icon}</Text>
-                                <Text style={{ color: theme.textSecondary, fontSize: 13, fontWeight: '500' }}>{badge.label}</Text>
+                <View style={{ ...sectionStyle, paddingTop: SECTION_PADDING, paddingBottom: SECTION_PADDING - 8 }}>
+                    <View style={{ flexDirection: isDesktop ? 'row' : 'column', alignItems: isDesktop ? 'flex-start' : 'stretch', justifyContent: 'space-between', gap: isDesktop ? 56 : 28 }}>
+                        <View style={{ flex: isDesktop ? 1 : undefined, maxWidth: isDesktop ? 520 : undefined }}>
+                            <View style={{ paddingVertical: 6 }}>
+                                <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800', marginBottom: 26, textAlign: 'center' }}>Desenvolvidos por JNC Tecnologia.</Text>
+                                <View style={{ flexDirection: 'row', flexWrap: (isDesktop ? 'nowrap' : 'wrap') as any, justifyContent: 'center', alignItems: 'center', gap: isDesktop ? 0 : 4, alignSelf: 'center' }}>
+                                    {[
+                                        {
+                                            dark: 'https://i.im.ge/2025/11/02/nzgjAc.Logo-White.png',
+                                            light: 'https://i.im.ge/2025/11/03/nH0whJ.Logo-Black.png',
+                                        },
+                                        {
+                                            dark: 'https://i.im.ge/2025/12/20/BSw0fS.JusJNC-White.png',
+                                            light: 'https://i.im.ge/2025/12/20/BSwiNy.JusJNC-Black.png',
+                                        },
+                                        {
+                                            dark: 'https://i.im.ge/2025/10/18/nRo1MP.Logo-transparente.png',
+                                            light: 'https://i.im.ge/2025/10/18/nRo1MP.Logo-transparente.png',
+                                        },
+                                        {
+                                            dark: 'https://i.im.ge/2025/12/21/BDiDfm.Animes-JNC.png',
+                                            light: 'https://i.im.ge/2025/12/21/BDiDfm.Animes-JNC.png',
+                                        },
+                                    ].map((logo, idx) => (
+                                        <Image
+                                            key={idx}
+                                            source={{ uri: mode === 'dark' ? logo.dark : logo.light }}
+                                            resizeMode="contain"
+                                            style={{
+                                                width: isDesktop
+                                                    ? (idx === 0 ? 120 : (idx === 1 ? 130 : (idx === 2 ? 150 : 120)))
+                                                    : (idx === 0 ? 90 : (idx === 1 ? 96 : (idx === 2 ? 110 : 90))),
+                                                height: idx === 0 ? 34 : (idx === 1 ? 50 : (idx === 2 ? 56 : 42)),
+                                                marginLeft: isDesktop && idx > 0 ? -14 : 0,
+                                            }}
+                                        />
+                                    ))}
+                                </View>
                             </View>
-                        ))}
+                        </View>
+
+                        <View style={{ flex: isDesktop ? 1 : undefined, maxWidth: isDesktop ? 240 : undefined, alignItems: isDesktop ? 'flex-start' : 'center' }}>
+                            <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800', marginBottom: 14 }}>Links</Text>
+                            <View style={{ gap: 10, alignItems: isDesktop ? 'flex-start' : 'center' }}>
+                                <TouchableOpacity onPress={() => scrollToSection('features')}><Text style={{ color: theme.textSecondary, fontSize: 14 }}>Como Funciona</Text></TouchableOpacity>
+                                <TouchableOpacity onPress={() => scrollToSection('plans')}><Text style={{ color: theme.textSecondary, fontSize: 14 }}>Planos</Text></TouchableOpacity>
+                                <TouchableOpacity onPress={() => scrollToSection('audience')}><Text style={{ color: theme.textSecondary, fontSize: 14 }}>Pra Quem</Text></TouchableOpacity>
+                                <Text style={{ color: theme.textSecondary, fontSize: 14 }}>Termos de Uso</Text>
+                                <Text style={{ color: theme.textSecondary, fontSize: 14 }}>Privacidade</Text>
+                            </View>
+                        </View>
+
+                        <View style={{ flex: isDesktop ? 1 : undefined, maxWidth: isDesktop ? 260 : undefined, alignItems: isDesktop ? 'flex-start' : 'center' }}>
+                            <Text style={{ color: theme.text, fontSize: 16, fontWeight: '800', marginBottom: 14 }}>Contato</Text>
+                            <View style={{ gap: 10, alignItems: isDesktop ? 'flex-start' : 'center' }}>
+                                <Text style={{ color: theme.textSecondary, fontSize: 14 }}>contato@nevesecosta.com.br</Text>
+                                <Text style={{ color: theme.textSecondary, fontSize: 14 }}>(73) 99934-8552</Text>
+                            </View>
+                        </View>
                     </View>
                 </View>
 
                 {/* Footer */}
                 <View style={{ borderTopWidth: 1, borderTopColor: theme.border, paddingVertical: 24, alignItems: 'center', marginTop: 16 }}>
                     <Text style={{ color: theme.textSecondary, fontSize: 13 }}>© 2025 Fast Cash Flow. Todos os direitos reservados.</Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
-                        <Text style={{ color: theme.textSecondary, fontSize: 12 }}>Mais um produto do grupo </Text>
-                        <Text style={{ fontSize: 12, fontWeight: '800' }}>
-                            <Text style={{ color: '#DC2626' }}>J</Text>
-                            <Text style={{ color: mode === 'dark' ? '#FFFFFF' : '#1F2937' }}>N</Text>
-                            <Text style={{ color: '#DC2626' }}>C</Text>
-                        </Text>
-                        <Text style={{ color: theme.textSecondary, fontSize: 12 }}>.</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, gap: 0 }}>
+                        <Text style={{ color: theme.textSecondary, fontSize: 12 }}>Um produto da marca</Text>
+                        <Image
+                            source={{ uri: 'https://i.im.ge/2025/12/20/BSwhSJ.JNC.png' }}
+                            resizeMode="contain"
+                            style={{ width: 82, height: 22, marginLeft: -18 }}
+                        />
                     </View>
                 </View>
             </ScrollView>

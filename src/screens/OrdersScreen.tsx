@@ -1,8 +1,7 @@
 import React from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, Alert, ScrollView, StyleSheet, useWindowDimensions, Platform } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, Alert, ScrollView, StyleSheet, useWindowDimensions, Platform, Modal } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import NativeDatePicker from '../utils/NativeDatePicker';
-import { todayYMD } from '../utils/date';
 import { formatCentsBRL, parseBRLToCents, maskBRLInput } from '../utils/money';
 import { useThemeCtx } from '../theme/ThemeProvider';
 import { useToast } from '../ui/ToastProvider';
@@ -170,7 +169,8 @@ async function createOrder(companyId: string, order: CreateOrderInput): Promise<
         type: 'income',
         description: `Entrada de Encomenda de ${order.client_name}`,
         amount_cents: order.down_payment_cents,
-        date: todayYMD(),
+        date: getBrasiliaDate(now),
+        time: getBrasiliaTime(now),
         datetime: now.toISOString(),
         company_id: companyId, // Passa o company_id explicitamente
       });
@@ -187,7 +187,8 @@ async function updateOrder(companyId: string, orderId: string, order: Partial<Cr
   // Se o status está sendo alterado para cancelado, excluir o lançamento relacionado
   if (order.status === 'cancelled' && originalOrder && originalOrder.down_payment_cents > 0) {
     try {
-      const transactions = await getTransactionsByDate(originalOrder.created_at.split('T')[0]);
+      const createdAtYmd = getBrasiliaDate(new Date(originalOrder.created_at));
+      const transactions = await getTransactionsByDate(createdAtYmd);
       const relatedTransaction = transactions.find((t: Transaction) =>
         t.description === `Entrada de Encomenda de ${originalOrder.client_name}` &&
         t.amount_cents === originalOrder.down_payment_cents &&
@@ -217,7 +218,8 @@ async function updateOrder(companyId: string, orderId: string, order: Partial<Cr
           type: 'income',
           description: `Entrada de Encomenda de ${originalOrder.client_name}`,
           amount_cents: depositDifference,
-          date: todayYMD(),
+          date: getBrasiliaDate(now),
+          time: getBrasiliaTime(now),
           datetime: now.toISOString(),
           category: 'Encomenda',
           company_id: companyId,
@@ -243,7 +245,8 @@ async function updateOrder(companyId: string, orderId: string, order: Partial<Cr
           type: 'income',
           description: `Encomenda - ${originalOrder.client_name} (${originalOrder.order_type})`,
           amount_cents: remainingValue,
-          date: todayYMD(),
+          date: getBrasiliaDate(now),
+          time: getBrasiliaTime(now),
           datetime: now.toISOString(),
           category: 'Encomenda',
           company_id: companyId,
@@ -275,7 +278,7 @@ async function deleteOrder(companyId: string, orderId: string, order: Order): Pr
     console.log('Procurando lançamentos relacionados para excluir...');
 
     // Buscar lançamentos em múltiplas datas possíveis
-    const today = todayYMD();
+    const today = getBrasiliaDate(new Date());
     const datesToSearch = [
       order.created_at?.split('T')[0], // Data de criação
       order.delivery_date, // Data de entrega
@@ -544,7 +547,7 @@ export default function OrdersScreen() {
       queryClient.invalidateQueries({ queryKey: ['orders', companyId] });
 
       // Invalidar queries de transações para atualizar dashboard e relatórios
-      const today = todayYMD();
+      const today = getBrasiliaDate(new Date());
       queryClient.invalidateQueries({ queryKey: ['transactions-by-date', today] });
       queryClient.invalidateQueries({ queryKey: ['daily-totals', today] });
       queryClient.invalidateQueries({ queryKey: ['month-totals'] });
@@ -575,7 +578,7 @@ export default function OrdersScreen() {
       queryClient.invalidateQueries({ queryKey: ['orders', companyId] });
 
       // Invalidar queries de transações para atualizar dashboard e relatórios
-      const today = todayYMD();
+      const today = getBrasiliaDate(new Date());
       queryClient.invalidateQueries({ queryKey: ['transactions-by-date', today] });
       queryClient.invalidateQueries({ queryKey: ['daily-totals', today] });
       queryClient.invalidateQueries({ queryKey: ['month-totals'] });
@@ -750,21 +753,6 @@ export default function OrdersScreen() {
       // 1. Atualizar status da encomenda para completed
       const updatedOrder = await updateOrder(companyId, order.id, { status: 'completed' }, order);
 
-      // 2. Criar lançamento do valor restante (se houver)
-      const remainingValue = order.order_value_cents - order.down_payment_cents;
-      if (remainingValue > 0) {
-        const now = new Date();
-        await createTransaction({
-          type: 'income',
-          description: `Encomenda - ${order.client_name} (${order.order_type})`,
-          amount_cents: remainingValue,
-          date: todayYMD(),
-          datetime: now.toISOString(),
-          category: 'Encomenda',
-          company_id: companyId,
-        });
-      }
-
       return updatedOrder;
     },
     onSuccess: async () => {
@@ -772,7 +760,7 @@ export default function OrdersScreen() {
       queryClient.invalidateQueries({ queryKey: ['orders', companyId] });
 
       // Invalidar queries de transações
-      const today = todayYMD();
+      const today = getBrasiliaDate(new Date());
       queryClient.invalidateQueries({ queryKey: ['transactions-by-date', today] });
       queryClient.invalidateQueries({ queryKey: ['daily-totals', today] });
       queryClient.invalidateQueries({ queryKey: ['month-totals'] });
@@ -1253,75 +1241,89 @@ export default function OrdersScreen() {
       )}
 
       {/* Modal de confirmação de exclusão */}
-      {confirmDeleteVisible && orderToDelete && (
+      <Modal
+        visible={confirmDeleteVisible && !!orderToDelete}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={cancelDelete}
+      >
         <View style={styles.modalBackdrop}>
-          <View style={[styles.confirmModal, { backgroundColor: theme.card }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>🗑️ Excluir Encomenda</Text>
-            <Text style={[styles.modalMessage, { color: theme.text }]}>
-              Deseja realmente excluir a encomenda de <Text style={{ fontWeight: '700' }}>{orderToDelete.client_name}</Text>?
-            </Text>
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                onPress={cancelDelete}
-                style={[styles.modalButton, styles.cancelButton]}
-              >
-                <Text style={styles.cancelButtonText}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={confirmDelete}
-                style={[styles.modalButton, styles.confirmButton]}
-              >
-                <Text style={styles.confirmButtonText}>Excluir</Text>
-              </TouchableOpacity>
+          {orderToDelete && (
+            <View style={[styles.confirmModal, { backgroundColor: theme.card }]}>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>🗑️ Excluir Encomenda</Text>
+              <Text style={[styles.modalMessage, { color: theme.text }]}>
+                Deseja realmente excluir a encomenda de <Text style={{ fontWeight: '700' }}>{orderToDelete.client_name}</Text>?
+              </Text>
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  onPress={cancelDelete}
+                  style={[styles.modalButton, styles.cancelButton]}
+                >
+                  <Text style={styles.cancelButtonText}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={confirmDelete}
+                  style={[styles.modalButton, styles.confirmButton]}
+                >
+                  <Text style={styles.confirmButtonText}>Excluir</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
+          )}
         </View>
-      )}
+      </Modal>
 
       {/* Modal de confirmação de entrega */}
-      {confirmDeliveryVisible && orderToDeliver && (
+      <Modal
+        visible={confirmDeliveryVisible && !!orderToDeliver}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={cancelDelivery}
+      >
         <View style={styles.modalBackdrop}>
-          <View style={[styles.confirmModal, { backgroundColor: theme.card }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>📦 Marcar como Entregue</Text>
-            <Text style={[styles.modalMessage, { color: theme.text }]}>
-              Confirmar entrega da encomenda de <Text style={{ fontWeight: '700' }}>{orderToDeliver.client_name}</Text>?
-            </Text>
-            <View style={{ backgroundColor: '#f0fdf4', padding: 12, borderRadius: 8, marginBottom: 16 }}>
-              <Text style={{ color: '#166534', fontSize: 14, marginBottom: 4 }}>
-                <Text style={{ fontWeight: '700' }}>Valor Total:</Text> {formatCentsBRL(orderToDeliver.order_value_cents)}
+          {orderToDeliver && (
+            <View style={[styles.confirmModal, { backgroundColor: theme.card }]}>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>📦 Marcar como Entregue</Text>
+              <Text style={[styles.modalMessage, { color: theme.text }]}>
+                Confirmar entrega da encomenda de <Text style={{ fontWeight: '700' }}>{orderToDeliver.client_name}</Text>?
               </Text>
-              <Text style={{ color: '#166534', fontSize: 14, marginBottom: 4 }}>
-                <Text style={{ fontWeight: '700' }}>Sinal Pago:</Text> {formatCentsBRL(orderToDeliver.down_payment_cents)}
-              </Text>
-              <Text style={{ color: '#166534', fontSize: 14, fontWeight: '700' }}>
-                Valor Restante: {formatCentsBRL(orderToDeliver.order_value_cents - orderToDeliver.down_payment_cents)}
-              </Text>
-              {(orderToDeliver.order_value_cents - orderToDeliver.down_payment_cents) > 0 && (
-                <Text style={{ color: '#15803d', fontSize: 12, marginTop: 8, fontStyle: 'italic' }}>
-                  * O valor restante será lançado automaticamente em "Lançamentos"
+              <View style={{ backgroundColor: '#f0fdf4', padding: 12, borderRadius: 8, marginBottom: 16 }}>
+                <Text style={{ color: '#166534', fontSize: 14, marginBottom: 4 }}>
+                  <Text style={{ fontWeight: '700' }}>Valor Total:</Text> {formatCentsBRL(orderToDeliver.order_value_cents)}
                 </Text>
-              )}
-            </View>
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                onPress={cancelDelivery}
-                style={[styles.modalButton, styles.cancelButton]}
-              >
-                <Text style={styles.cancelButtonText}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={confirmDelivery}
-                style={[styles.modalButton, { backgroundColor: '#10b981' }]}
-                disabled={deliverOrderMutation.isPending}
-              >
-                <Text style={styles.confirmButtonText}>
-                  {deliverOrderMutation.isPending ? 'Processando...' : '✓ Confirmar Entrega'}
+                <Text style={{ color: '#166534', fontSize: 14, marginBottom: 4 }}>
+                  <Text style={{ fontWeight: '700' }}>Sinal Pago:</Text> {formatCentsBRL(orderToDeliver.down_payment_cents)}
                 </Text>
-              </TouchableOpacity>
+                <Text style={{ color: '#166534', fontSize: 14, fontWeight: '700' }}>
+                  Valor Restante: {formatCentsBRL(orderToDeliver.order_value_cents - orderToDeliver.down_payment_cents)}
+                </Text>
+                {(orderToDeliver.order_value_cents - orderToDeliver.down_payment_cents) > 0 && (
+                  <Text style={{ color: '#15803d', fontSize: 12, marginTop: 8, fontStyle: 'italic' }}>
+                    * O valor restante será lançado automaticamente em "Lançamentos"
+                  </Text>
+                )}
+              </View>
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  onPress={cancelDelivery}
+                  style={[styles.modalButton, styles.cancelButton]}
+                >
+                  <Text style={styles.cancelButtonText}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={confirmDelivery}
+                  style={[styles.modalButton, { backgroundColor: '#10b981' }]}
+                  disabled={deliverOrderMutation.isPending}
+                >
+                  <Text style={styles.confirmButtonText}>
+                    {deliverOrderMutation.isPending ? 'Processando...' : '✓ Confirmar Entrega'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
+          )}
         </View>
-      )}
+      </Modal>
     </ScrollView>
   );
 }
@@ -1552,11 +1554,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   modalBackdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',

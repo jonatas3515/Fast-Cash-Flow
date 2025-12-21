@@ -1,0 +1,40 @@
+# Exclude large directories and files
+android/
+ios/
+.expo/
+dist/
+web-build/
+.git/
+.vercel/
+.agent/
+supabase/.temp/
+*.log
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# Exclude large assets that aren't needed for web build
+assets/raw/
+*.psd
+*.ai
+*.sketch
+
+# Exclude testing and coverage
+coverage/
+test-results/
+.jest/
+playwright-report/
+
+# Exclude IDE files
+.vscode/
+.idea/
+
+# Exclude OS files
+.DS_Store
+Thumbs.db
+
+# Exclude environment files (use Vercel environment variables instead)
+.env.local
+.env.development.local
+.env.test.local

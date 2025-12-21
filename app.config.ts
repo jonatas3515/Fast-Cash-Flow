@@ -26,7 +26,7 @@ const config: ExpoConfig = {
     backgroundColor: '#000000' as any,
     name: 'FAST CASH FLOW' as any,
     shortName: 'FastCashFlow' as any,
-    favicon: './assets/favicon.png' as any,
+    favicon: './assets/landing/Logo White.png' as any,
   },
   plugins: ['expo-secure-store'],
   extra: {

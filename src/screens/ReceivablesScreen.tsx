@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, FlatList, StyleSheet, Alert, TextInput, ScrollView, Modal } from 'react-native';
+import { View, Text, TouchableOpacity, FlatList, StyleSheet, Alert, TextInput, ScrollView, Modal, Platform } from 'react-native';
 import { useThemeCtx } from '../theme/ThemeProvider';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -13,7 +13,7 @@ import {
 } from '../repositories/receivables';
 import { createTransaction } from '../repositories/transactions';
 import { formatCentsBRL, parseBRLToCents, maskBRLInput } from '../utils/money';
-import { todayYMD } from '../utils/date';
+import { todayBrasilia, nowBrasilia } from '../utils/date';
 import ScreenTitle from '../components/ScreenTitle';
 import { useToast } from '../ui/ToastProvider';
 import FeatureBanner, { FEATURE_BANNERS } from '../components/FeatureBanner';
@@ -58,6 +58,9 @@ export default function ReceivablesScreen() {
   // Estado para confirmação de exclusão inline
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  const [confirmReceiveVisible, setConfirmReceiveVisible] = useState(false);
+  const [receivableToReceive, setReceivableToReceive] = useState<Receivable | null>(null);
+
   const receivablesQuery = useQuery({
     queryKey: ['receivables'],
     queryFn: listReceivables,
@@ -101,14 +104,15 @@ export default function ReceivablesScreen() {
 
       // Criar lançamento de entrada no fluxo de caixa
       // Formato: "Descrição * Nome do Cliente"
+      const now = new Date();
       await createTransaction({
         type: 'income',
         description: `${receivable.description} * ${receivable.client_name}`,
         category: 'Recebimento Fiado',
         amount_cents: amountCents,
-        date: todayYMD(),
-        time: new Date().toTimeString().slice(0, 5),
-        datetime: new Date().toISOString(),
+        date: todayBrasilia(),
+        time: nowBrasilia(),
+        datetime: now.toISOString(),
         clientname: receivable.client_name,
       });
     },
@@ -134,6 +138,12 @@ export default function ReceivablesScreen() {
 
   const handleMarkReceived = (receivable: Receivable) => {
     const remaining = receivable.total_cents - receivable.received_cents;
+
+    if (Platform.OS === 'web') {
+      setReceivableToReceive(receivable);
+      setConfirmReceiveVisible(true);
+      return;
+    }
 
     Alert.alert(
       '💰 Confirmar Recebimento',
@@ -445,6 +455,58 @@ export default function ReceivablesScreen() {
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={confirmReceiveVisible && !!receivableToReceive}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => {
+          setConfirmReceiveVisible(false);
+          setReceivableToReceive(null);
+        }}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+          {receivableToReceive && (
+            <View style={{ backgroundColor: theme.card, borderRadius: 16, padding: 24, width: '100%', maxWidth: 360, alignItems: 'center' }}>
+              <Text style={{ color: '#10B981', fontSize: 48, marginBottom: 12 }}>💰</Text>
+              <Text style={{ color: theme.text, fontSize: 18, fontWeight: '700', marginBottom: 8, textAlign: 'center' }}>
+                Confirmar Recebimento?
+              </Text>
+              <Text style={{ color: theme.textSecondary, fontSize: 14, marginBottom: 20, textAlign: 'center' }}>
+                Cliente: {receivableToReceive.client_name}{'\n'}
+                Valor: {formatCentsBRL(receivableToReceive.total_cents - receivableToReceive.received_cents)}
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 12, width: '100%' }}>
+                <TouchableOpacity
+                  onPress={() => {
+                    setConfirmReceiveVisible(false);
+                    setReceivableToReceive(null);
+                  }}
+                  style={{ flex: 1, padding: 14, borderRadius: 8, backgroundColor: '#6b7280', alignItems: 'center' }}
+                >
+                  <Text style={{ color: '#fff', fontWeight: '600', fontSize: 14 }}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => {
+                    const r = receivableToReceive;
+                    if (!r) return;
+                    const remaining = r.total_cents - r.received_cents;
+                    markReceivedMutation.mutate({ id: r.id, amountCents: remaining, receivable: r });
+                    setConfirmReceiveVisible(false);
+                    setReceivableToReceive(null);
+                  }}
+                  style={{ flex: 1, padding: 14, borderRadius: 8, backgroundColor: '#10B981', alignItems: 'center' }}
+                  disabled={markReceivedMutation.isPending}
+                >
+                  <Text style={{ color: '#fff', fontWeight: '600', fontSize: 14 }}>
+                    {markReceivedMutation.isPending ? 'Processando...' : '✓ Pago'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
         </View>
       </Modal>
     </View>

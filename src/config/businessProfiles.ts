@@ -58,6 +58,7 @@ export const BUSINESS_PROFILES: Record<BusinessType, BusinessProfile> = {
       'Taxa app delivery',
       'Gás',
       'Funcionários',
+      'Retirada Sócio',
       'Aluguel',
       'Energia',
       'Marketing',

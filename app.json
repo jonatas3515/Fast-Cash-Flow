@@ -24,7 +24,7 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/landing/Logo White.png"
     },
     "plugins": [
       "expo-sqlite",

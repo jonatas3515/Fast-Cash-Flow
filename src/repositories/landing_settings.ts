@@ -152,7 +152,7 @@ export const DEFAULT_LANDING_SETTINGS: Omit<LandingSettings, 'id' | 'created_at'
     final_cta_subtitle: 'Comece agora mesmo, sem compromisso.',
 
     footer_year: 2025,
-    footer_company_text: 'Mais um produto do grupo JNC.',
+    footer_company_text: 'Um produto da marca',
 
     nav_items: [
         { label: 'Como funciona', ref: 'features' },
