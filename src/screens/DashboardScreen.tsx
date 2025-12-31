@@ -343,12 +343,11 @@ export default function DashboardScreen() {
 
       const year = selectedMonth.getFullYear();
       const month = selectedMonth.getMonth() + 1;
-      const monthStr = `${year}-${String(month).padStart(2, '0')}-01`;
 
-      console.log('[🎯 GOAL] Salvando meta:', { companyId, month: monthStr, target: targetCents });
+      console.log('[🎯 GOAL] Salvando meta:', { companyId, year, month, target: targetCents });
 
-      // Verificar se já existe uma meta para este mês
-      const existingGoal = await getGoalByMonth(companyId, monthStr);
+      // Verificar se já existe uma meta para este mês (usando year/month INTEGER)
+      const existingGoal = await getGoalByMonth(companyId, year, month);
 
       if (existingGoal) {
         console.log('[🎯 GOAL] Atualizando meta existente:', existingGoal.id);
@@ -357,7 +356,8 @@ export default function DashboardScreen() {
         console.log('[🎯 GOAL] Criando nova meta');
         return await createGoal({
           company_id: companyId,
-          month: monthStr,
+          year: year,
+          month: month,
           target_amount_cents: targetCents,
         });
       }
@@ -518,7 +518,7 @@ export default function DashboardScreen() {
       const [monthlyTotals, dailySeries, goal] = await Promise.all([
         getMonthlyTotals(year, month),
         getMonthlyDailySeries(year, month),
-        getGoalByMonth(companyId, `${year}-${String(month).padStart(2, '0')}-01`)
+        getGoalByMonth(companyId, year, month)
       ]);
 
       const goalProgress = goal ? {
@@ -885,18 +885,18 @@ export default function DashboardScreen() {
           const nextDateStr = nextDate.toISOString().split('T')[0];
           const paymentKey = rec.recurrence_type === 'monthly' ? nextDateStr.slice(0, 7) : nextDateStr;
           const paymentTag = `recurring_expense:${rec.id}:${paymentKey}`;
-          
+
           // Verificação melhorada: Se já foi pago no mês (via tag determinística), não entra nos alertas
           const alreadyPaid = monthTransactions.some((tx) => {
             return tx.type === 'expense' && (
               (tx.source_device || '') === paymentTag ||
               // Verificação adicional: mesma descrição, valor aproximado e mês atual
-              (tx.description === rec.description && 
-               Math.abs(tx.amount_cents - rec.amount_cents) < 100 && // diferença de até R$ 1,00
-               tx.date.startsWith(nextDateStr.slice(0, 7)))
+              (tx.description === rec.description &&
+                Math.abs(tx.amount_cents - rec.amount_cents) < 100 && // diferença de até R$ 1,00
+                tx.date.startsWith(nextDateStr.slice(0, 7)))
             );
           });
-          
+
           if (alreadyPaid) continue;
 
           const diffDays = Math.floor((nextDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));

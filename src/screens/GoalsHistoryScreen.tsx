@@ -11,8 +11,8 @@ import FeatureBanner, { FEATURE_BANNERS } from '../components/FeatureBanner';
 
 interface GoalHistoryItem {
   id: string;
-  month: string;
-  year: string;
+  month: number;
+  year: number;
   target_cents: number;
   achieved_cents: number;
   percent: number;
@@ -39,14 +39,15 @@ export default function GoalsHistoryScreen() {
       // Para cada meta, buscar o total do mês e calcular status
       for (const goal of goals) {
         try {
-          // Extrair ano e mês do formato YYYY-MM-01
-          const [year, month] = goal.month.split('-');
-          const monthTotals = await getMonthlyTotals(parseInt(year), parseInt(month));
+          // goal.year e goal.month agora são integers no schema do banco
+          const year = goal.year;
+          const month = goal.month;
+          const monthTotals = await getMonthlyTotals(year, month);
           const achieved = monthTotals?.income_cents || 0;
           const percent = goal.target_amount_cents > 0 ? Math.round((achieved / goal.target_amount_cents) * 100) : 0;
 
           const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-          const monthLabel = `${monthNames[parseInt(month) - 1]} ${year}`;
+          const monthLabel = `${monthNames[month - 1]} ${year}`;
 
           history.push({
             id: goal.id,
@@ -59,14 +60,14 @@ export default function GoalsHistoryScreen() {
             monthLabel
           });
         } catch (error) {
-          console.error(`Erro ao buscar totais para ${goal.month}:`, error);
+          console.error(`Erro ao buscar totais para ${goal.year}-${goal.month}:`, error);
         }
       }
 
       // Ordenar por data (mais recente primeiro)
       return history.sort((a, b) => {
-        const dateA = new Date(parseInt(a.year), parseInt(a.month) - 1);
-        const dateB = new Date(parseInt(b.year), parseInt(b.month) - 1);
+        const dateA = new Date(a.year, a.month - 1);
+        const dateB = new Date(b.year, b.month - 1);
         return dateB.getTime() - dateA.getTime();
       });
     },
