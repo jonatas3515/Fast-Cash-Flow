@@ -89,6 +89,7 @@ export interface LandingSettings {
     // Footer
     footer_year: number;
     footer_company_text: string;
+    footer_logo_url: string;
 
     // Navigation
     nav_items: NavItem[];
@@ -153,6 +154,7 @@ export const DEFAULT_LANDING_SETTINGS: Omit<LandingSettings, 'id' | 'created_at'
 
     footer_year: 2025,
     footer_company_text: 'Um produto da marca',
+    footer_logo_url: 'https://i.im.ge/2025/12/20/BSwhSJ.JNC.png',
 
     nav_items: [
         { label: 'Como funciona', ref: 'features' },

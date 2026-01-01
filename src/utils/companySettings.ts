@@ -57,7 +57,7 @@ export async function saveCompanyLogo(logoUrl: string, companyId?: string): Prom
 
     if (updateError) {
       console.error('Erro ao salvar logo na company_settings:', updateError);
-      
+
       // Fallback: tentar salvar diretamente na tabela companies
       const { error: fallbackError } = await supabase
         .from('companies')
@@ -78,24 +78,13 @@ export async function saveCompanyLogo(logoUrl: string, companyId?: string): Prom
   }
 }
 
-// Buscar logo da empresa (com fallback)
+// Buscar logo da empresa (direto da tabela companies para evitar 406)
 export async function getCompanyLogo(companyId?: string): Promise<string | null> {
   try {
     const id = companyId || await getCurrentCompanyId();
     if (!id) return null;
 
-    // Tentar buscar da company_settings primeiro
-    const { data: settings, error: settingsError } = await supabase
-      .from('company_settings')
-      .select('logo_url')
-      .eq('company_id', id)
-      .single();
-
-    if (!settingsError && settings?.logo_url) {
-      return settings.logo_url;
-    }
-
-    // Fallback: buscar da tabela companies
+    // Buscar direto da tabela companies (evita 406 de company_settings)
     const { data: company, error: companyError } = await supabase
       .from('companies')
       .select('logo_url')

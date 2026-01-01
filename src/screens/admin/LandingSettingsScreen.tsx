@@ -778,6 +778,19 @@ export default function LandingSettingsScreen() {
                                 onChangeText={(v) => updateField('footer_company_text', v)}
                             />
                         </View>
+                        <View>
+                            <Text style={labelStyle}>URL da Logo do Footer</Text>
+                            <TextInput
+                                style={inputStyle}
+                                value={formData.footer_logo_url || ''}
+                                onChangeText={(v) => updateField('footer_logo_url', v)}
+                                placeholder="https://exemplo.com/logo.png"
+                                placeholderTextColor={theme.textSecondary}
+                            />
+                            <Text style={{ color: theme.textSecondary, fontSize: 11, marginTop: 4 }}>
+                                Logo que aparece ao lado de "Um produto da marca"
+                            </Text>
+                        </View>
                     </View>
                 </CollapsibleWrapper>
 

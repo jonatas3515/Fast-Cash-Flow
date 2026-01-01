@@ -174,28 +174,17 @@ export default function PayablesScreen() {
         return;
       }
 
-      // Buscar logo da empresa (da tabela companies ou company_settings)
+      // Buscar logo da empresa (direto da tabela companies para evitar 406)
       let logoUrl = '';
       try {
         const companyId = await getCurrentCompanyId();
         if (companyId) {
-          // Primeiro tenta buscar de company_settings
-          const { data: settings } = await supabase
-            .from('company_settings')
+          const { data: company } = await supabase
+            .from('companies')
             .select('logo_url')
-            .eq('company_id', companyId)
+            .eq('id', companyId)
             .maybeSingle();
-          if (settings?.logo_url) {
-            logoUrl = settings.logo_url;
-          } else {
-            // Fallback para companies
-            const { data: company } = await supabase
-              .from('companies')
-              .select('logo_url')
-              .eq('id', companyId)
-              .maybeSingle();
-            if (company?.logo_url) logoUrl = company.logo_url;
-          }
+          if (company?.logo_url) logoUrl = company.logo_url;
         }
       } catch (e) {
         console.log('Não foi possível carregar logo');

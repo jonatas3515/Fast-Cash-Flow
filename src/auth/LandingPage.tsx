@@ -751,11 +751,11 @@ export default function LandingPage({ trialDays, onRegister, onLogin }: Props) {
 
                 {/* Footer */}
                 <View style={{ borderTopWidth: 1, borderTopColor: theme.border, paddingVertical: 24, alignItems: 'center', marginTop: 16 }}>
-                    <Text style={{ color: theme.textSecondary, fontSize: 13 }}>© 2025 Fast Cash Flow. Todos os direitos reservados.</Text>
+                    <Text style={{ color: theme.textSecondary, fontSize: 13 }}>© {settings.footer_year || 2025} Fast Cash Flow. Todos os direitos reservados.</Text>
                     <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, gap: 0 }}>
-                        <Text style={{ color: theme.textSecondary, fontSize: 12 }}>Um produto da marca</Text>
+                        <Text style={{ color: theme.textSecondary, fontSize: 12 }}>{settings.footer_company_text || 'Um produto da marca'}</Text>
                         <Image
-                            source={{ uri: 'https://i.im.ge/2025/12/20/BSwhSJ.JNC.png' }}
+                            source={{ uri: settings.footer_logo_url || 'https://i.im.ge/2025/12/20/BSwhSJ.JNC.png' }}
                             resizeMode="contain"
                             style={{ width: 82, height: 22, marginLeft: -18 }}
                         />
