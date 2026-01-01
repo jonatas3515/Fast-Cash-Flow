@@ -61,13 +61,13 @@ export default function CategoriesScreen() {
     try {
       // Usar getCurrentCompanyId que funciona para owners e funcionários
       const currentCompanyId = await getCurrentCompanyId();
-      
+
       if (!currentCompanyId) {
         console.error('Erro: company_id não encontrado');
         Alert.alert('Erro', 'Não foi possível identificar a empresa. Faça login novamente.');
         return;
       }
-      
+
       setCompanyId(currentCompanyId);
 
       const { data, error } = await supabase
@@ -128,21 +128,21 @@ export default function CategoriesScreen() {
       } else {
         // Criar nova categoria - garantir que temos um company_id válido
         let currentCompanyId = companyId;
-        
+
         // Se companyId estiver vazio, buscar novamente
         if (!currentCompanyId) {
           currentCompanyId = await getCurrentCompanyId() || '';
         }
-        
+
         // Validar UUID antes de enviar
         if (!currentCompanyId || currentCompanyId.length < 36) {
           console.error('Company ID inválido:', currentCompanyId);
           Alert.alert('Erro', 'Não foi possível identificar a empresa. Faça login novamente.');
           return;
         }
-        
+
         console.log('Criando categoria com company_id:', currentCompanyId);
-        
+
         const { error } = await supabase
           .from('categories')
           .insert({
@@ -342,17 +342,17 @@ export default function CategoriesScreen() {
                       key={icon}
                       style={[
                         styles.iconOption,
-                        { 
+                        {
                           backgroundColor: selectedIcon === icon ? theme.primary : theme.background,
                           borderColor: theme.border,
                         },
                       ]}
                       onPress={() => setSelectedIcon(icon)}
                     >
-                      <Ionicons 
-                        name={icon as any} 
-                        size={24} 
-                        color={selectedIcon === icon ? '#FFF' : theme.text} 
+                      <Ionicons
+                        name={icon as any}
+                        size={24}
+                        color={selectedIcon === icon ? '#FFF' : theme.text}
                       />
                     </TouchableOpacity>
                   ))}
@@ -366,7 +366,7 @@ export default function CategoriesScreen() {
                     key={color}
                     style={[
                       styles.colorOption,
-                      { 
+                      {
                         backgroundColor: color,
                         borderWidth: selectedColor === color ? 3 : 1,
                         borderColor: selectedColor === color ? theme.text : 'transparent',
@@ -426,10 +426,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 12,
     elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    // @ts-ignore - boxShadow for web compatibility
+    boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.1)',
   },
   iconContainer: {
     width: 56,
@@ -473,10 +471,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
+    // @ts-ignore - boxShadow for web compatibility
+    boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.25)',
   },
   modalOverlay: {
     flex: 1,

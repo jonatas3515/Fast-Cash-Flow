@@ -737,10 +737,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 12,
     elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
+    // @ts-ignore - boxShadow for web compatibility (replaces deprecated shadow* props)
+    boxShadow: '0px 1px 2px rgba(0, 0, 0, 0.1)',
   },
   sectionHeaderInfo: {
     flexDirection: 'row',
@@ -776,11 +774,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     borderRadius: 12,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
     elevation: 3,
+    // @ts-ignore - boxShadow for web compatibility (replaces deprecated shadow* props)
+    boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.1)',
     marginBottom: 8,
     alignItems: 'center',
     minHeight: 80,

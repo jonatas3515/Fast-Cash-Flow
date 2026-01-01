@@ -18,7 +18,7 @@ export default function NotificationSettingsScreen() {
   const { theme, mode } = useThemeCtx();
   const [loading, setLoading] = useState(true);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
-  
+
   // Preferências
   const [debtReminders, setDebtReminders] = useState(true);
   const [goalReminders, setGoalReminders] = useState(true);
@@ -37,7 +37,7 @@ export default function NotificationSettingsScreen() {
         setDebtReminders(preferences.debts);
         setGoalReminders(preferences.goals);
         setDailyRecap(preferences.dailyRecap);
-        
+
         if (preferences.recapTime) {
           const time = new Date();
           time.setHours(preferences.recapTime.hour, preferences.recapTime.minute);
@@ -92,7 +92,7 @@ export default function NotificationSettingsScreen() {
   const requestPermission = async () => {
     const granted = await NotificationService.requestPermissions();
     setNotificationsEnabled(granted);
-    
+
     if (!granted) {
       Alert.alert(
         'Permissão Negada',
@@ -126,8 +126,8 @@ export default function NotificationSettingsScreen() {
               Notificações Ativadas
             </Text>
             <Text style={[styles.settingDescription, { color: theme.textSecondary }]}>
-              {notificationsEnabled 
-                ? 'As notificações estão habilitadas' 
+              {notificationsEnabled
+                ? 'As notificações estão habilitadas'
                 : 'Ative as notificações para receber alertas'
               }
             </Text>
@@ -135,7 +135,7 @@ export default function NotificationSettingsScreen() {
           {notificationsEnabled ? (
             <Ionicons name="checkmark-circle" size={24} color={theme.positive} />
           ) : (
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.enableButton, { backgroundColor: theme.primary }]}
               onPress={requestPermission}
             >
@@ -150,7 +150,7 @@ export default function NotificationSettingsScreen() {
       {/* Tipos de Notificação */}
       <View style={styles.section}>
         <Text style={[styles.sectionTitle, { color: theme.text }]}>Tipos de Alerta</Text>
-        
+
         {/* Lembretes de Dívidas */}
         <View style={[styles.card, { backgroundColor: theme.card }]}>
           <View style={styles.settingRow}>
@@ -212,7 +212,7 @@ export default function NotificationSettingsScreen() {
               thumbColor={dailyRecap ? theme.primary : theme.textSecondary}
             />
           </View>
-          
+
           {dailyRecap && (
             <View style={styles.timePickerContainer}>
               <TouchableOpacity
@@ -232,7 +232,7 @@ export default function NotificationSettingsScreen() {
       {/* Ações */}
       <View style={styles.section}>
         <Text style={[styles.sectionTitle, { color: theme.text }]}>Ações</Text>
-        
+
         {/* Testar Notificação */}
         <TouchableOpacity
           style={[styles.actionButton, { backgroundColor: theme.card }]}
@@ -333,10 +333,8 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 12,
     elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    // @ts-ignore - boxShadow for web compatibility (replaces deprecated shadow* props)
+    boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.1)',
   },
   settingRow: {
     flexDirection: 'row',
@@ -389,10 +387,8 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 12,
     elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    // @ts-ignore - boxShadow for web compatibility (replaces deprecated shadow* props)
+    boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.1)',
     gap: 12,
   },
   actionText: {

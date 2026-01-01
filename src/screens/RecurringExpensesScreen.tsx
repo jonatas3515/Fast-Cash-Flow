@@ -134,31 +134,31 @@ export default function RecurringExpensesScreen() {
       const values: CategoryValue[] = allCategoryOptions
         .filter((cat) => cat.toLowerCase() !== 'outros')
         .map(cat => {
-        // Procurar despesa recorrente correspondente
-        const recurringExpense = recurring.find(r =>
-          r.description.toLowerCase().includes(cat.toLowerCase()) ||
-          cat.toLowerCase().includes(r.description.toLowerCase())
-        );
+          // Procurar despesa recorrente correspondente
+          const recurringExpense = recurring.find(r =>
+            r.description.toLowerCase().includes(cat.toLowerCase()) ||
+            cat.toLowerCase().includes(r.description.toLowerCase())
+          );
 
-        // Se encontrou, pegar o valor
-        if (recurringExpense) {
-          return { category: cat, value: formatCentsBRL(recurringExpense.amount_cents) };
-        }
+          // Se encontrou, pegar o valor
+          if (recurringExpense) {
+            return { category: cat, value: formatCentsBRL(recurringExpense.amount_cents) };
+          }
 
-        // Senão, procurar em transações do mês
-        const transaction = monthTransactions.find(tx =>
-          tx.type === 'expense' && (
-            (tx.description || '').toLowerCase().includes(cat.toLowerCase()) ||
-            cat.toLowerCase().includes((tx.description || '').toLowerCase())
-          )
-        );
+          // Senão, procurar em transações do mês
+          const transaction = monthTransactions.find(tx =>
+            tx.type === 'expense' && (
+              (tx.description || '').toLowerCase().includes(cat.toLowerCase()) ||
+              cat.toLowerCase().includes((tx.description || '').toLowerCase())
+            )
+          );
 
-        if (transaction) {
-          return { category: cat, value: formatCentsBRL(transaction.amount_cents) };
-        }
+          if (transaction) {
+            return { category: cat, value: formatCentsBRL(transaction.amount_cents) };
+          }
 
-        return { category: cat, value: '' };
-      });
+          return { category: cat, value: '' };
+        });
 
       return values;
     },
@@ -349,7 +349,7 @@ export default function RecurringExpensesScreen() {
       };
 
       // Se for "Não se Aplica", usar uma data especial que indica sem vencimento
-      const start_date = isNoDueDate 
+      const start_date = isNoDueDate
         ? '9999-12-31' // Data especial para "Não se Aplica"
         : recurrenceType === 'monthly'
           ? buildMonthlyStartYmd(dueDay)
@@ -1314,10 +1314,8 @@ export default function RecurringExpensesScreen() {
             marginHorizontal: 32,
             maxWidth: 400,
             width: '90%',
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.25,
-            shadowRadius: 8,
+            // @ts-ignore
+            boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.25)',
           }}>
             <Text style={{
               fontSize: 20,

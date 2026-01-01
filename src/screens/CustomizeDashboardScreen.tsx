@@ -39,7 +39,7 @@ export default function CustomizeDashboardScreen({ navigation }: any) {
   };
 
   const toggleWidget = (id: string) => {
-    const updated = widgets.map(w => 
+    const updated = widgets.map(w =>
       w.id === id ? { ...w, enabled: !w.enabled } : w
     );
     setWidgets(updated);
@@ -124,7 +124,7 @@ export default function CustomizeDashboardScreen({ navigation }: any) {
               key={widget.id}
               style={[
                 styles.widgetCard,
-                { 
+                {
                   backgroundColor: theme.card,
                   opacity: widget.enabled ? 1 : 0.5,
                 },
@@ -246,10 +246,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 12,
     elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    // @ts-ignore
+    boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.1)',
   },
   widgetHeader: {
     flexDirection: 'row',

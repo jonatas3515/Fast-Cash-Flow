@@ -381,22 +381,33 @@ export default function RangeScreen() {
         </table>
         <div class="footer">✅ Gerado em ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} via Fast Cash Flow</div>
       </body></html>`;
-    const file = await Print.printToFileAsync({ html });
+    // Na web, usar abordagem diferente pois Print.printToFileAsync não funciona bem
     if (Platform.OS === 'web') {
       try {
-        const resp = await fetch(file.uri);
-        const blob = await resp.blob();
-        const webFile = new File([blob], `relatorio-${start}-a-${end}.pdf`, { type: 'application/pdf' });
-        // @ts-ignore
-        if (navigator.share && navigator.canShare && navigator.canShare({ files: [webFile] })) {
-          // @ts-ignore
-          await navigator.share({ files: [webFile], title: 'Relatório PDF', text: `Relatório ${toDDMMYYYY(start)} a ${toDDMMYYYY(end)}` });
-          return;
-        }
+        // Tentar usar Web Share API se disponível
+        const blob = new Blob([html], { type: 'text/html' });
+        const pdfBlob = await (async () => {
+          // Fallback: abrir em nova janela para imprimir/salvar
+          const win = window.open('', '_blank');
+          if (win) {
+            win.document.open();
+            win.document.write(html);
+            win.document.close();
+            win.focus();
+            setTimeout(() => {
+              win.print();
+            }, 300);
+          }
+          return null;
+        })();
       } catch { }
-      // Fallback: download o PDF (usuário anexa manualmente no WhatsApp Web)
-      const a = document.createElement('a');
-      a.href = file.uri; a.download = `relatorio-${start}-a-${end}.pdf`; a.click();
+      return;
+    }
+
+    // Para mobile, usar expo-print
+    const file = await Print.printToFileAsync({ html });
+    if (!file || !file.uri) {
+      Alert.alert('Erro ao gerar PDF');
       return;
     }
     if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(file.uri, { UTI: 'com.adobe.pdf', mimeType: 'application/pdf' });

@@ -72,7 +72,7 @@ export default function HealthActionCard({ data }: HealthActionCardProps) {
                 icon: '🚀',
                 actionLabel: 'Novo Pedido',
                 criticality: 'low',
-                onPress: () => navigation.navigate('Orders', { screen: 'NewOrder' }),
+                onPress: () => navigation.navigate('Encomendas'),
             });
         }
 

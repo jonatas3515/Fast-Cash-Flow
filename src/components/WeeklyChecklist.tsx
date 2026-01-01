@@ -34,32 +34,32 @@ interface WeeklyStep {
 // Passos da primeira semana
 const WEEKLY_STEPS_TEMPLATE: Omit<WeeklyStep, 'completed'>[] = [
   // Dia 1 - Configuração básica
-  { id: 'w1_setup', day: 1, title: 'Configurar empresa', description: 'Nome, logo e dados básicos', icon: '🏢', screen: 'Settings' },
+  { id: 'w1_setup', day: 1, title: 'Configurar empresa', description: 'Nome, logo e dados básicos', icon: '🏢', screen: 'Configuração' },
   { id: 'w1_first_tx', day: 1, title: 'Primeiro lançamento', description: 'Registrar entrada ou saída', icon: '💰', screen: 'Dia' },
-  
+
   // Dia 2 - Organização
   { id: 'w2_products', day: 2, title: 'Cadastrar produtos', description: 'Adicione seus produtos/serviços', icon: '📦', screen: 'Produtos' },
   { id: 'w2_categories', day: 2, title: 'Usar categorias', description: 'Categorize seus lançamentos', icon: '🏷️', screen: 'Dia' },
-  
+
   // Dia 3 - Planejamento
   { id: 'w3_goal', day: 3, title: 'Definir meta mensal', description: 'Estabeleça sua meta de faturamento', icon: '🎯', screen: 'Dashboard' },
   { id: 'w3_debts', day: 3, title: 'Registrar dívidas', description: 'Adicione contas a pagar', icon: '📋', screen: 'Dívidas' },
-  
+
   // Dia 4 - Controle
   { id: 'w4_recurring', day: 4, title: 'Despesas recorrentes', description: 'Configure gastos fixos mensais', icon: '🔄', screen: 'Despesas Recorrentes' },
   { id: 'w4_check_balance', day: 4, title: 'Verificar saldo', description: 'Confira seu saldo no Dashboard', icon: '📊', screen: 'Dashboard' },
-  
+
   // Dia 5 - Análise
   { id: 'w5_report', day: 5, title: 'Gerar relatório', description: 'Veja seu primeiro relatório', icon: '📈', screen: 'Relatórios' },
   { id: 'w5_health', day: 5, title: 'Checar saúde financeira', description: 'Veja o semáforo no Dashboard', icon: '🚦', screen: 'Dashboard' },
-  
+
   // Dia 6 - Avançado
   { id: 'w6_orders', day: 6, title: 'Explorar encomendas', description: 'Gerencie pedidos de clientes', icon: '🛒', screen: 'Encomendas' },
   { id: 'w6_diagnostico', day: 6, title: 'Ver diagnóstico', description: 'Análise detalhada do negócio', icon: '🔍', screen: 'Diagnóstico' },
-  
+
   // Dia 7 - Consolidação
   { id: 'w7_accountant', day: 7, title: 'Relatório para contador', description: 'Exporte dados para contabilidade', icon: '📑', screen: 'Relatórios' },
-  { id: 'w7_backup', day: 7, title: 'Verificar sincronização', description: 'Confirme que dados estão salvos', icon: '☁️', screen: 'Settings' },
+  { id: 'w7_backup', day: 7, title: 'Verificar sincronização', description: 'Confirme que dados estão salvos', icon: '☁️', screen: 'Configuração' },
 ];
 
 interface WeeklyChecklistProps {
@@ -172,8 +172,8 @@ export default function WeeklyChecklist({ navigation, compact = false }: WeeklyC
         <View style={[styles.progressBar, { backgroundColor: theme.background }]}>
           <View style={[styles.progressFill, { width: `${progress}%`, backgroundColor: '#6366F1' }]} />
         </View>
-        <TouchableOpacity 
-          onPress={() => navigation.navigate('Settings')}
+        <TouchableOpacity
+          onPress={() => navigation.navigate('Configuração')}
           style={styles.compactButton}
         >
           <Text style={styles.compactButtonText}>Ver checklist completa →</Text>
@@ -218,9 +218,9 @@ export default function WeeklyChecklist({ navigation, compact = false }: WeeklyC
 
         return (
           <View key={day} style={styles.dayContainer}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[
-                styles.dayHeader, 
+                styles.dayHeader,
                 { backgroundColor: isDayComplete ? '#DCFCE7' : theme.background }
               ]}
               onPress={() => setExpandedDay(isExpanded ? null : dayNum)}
@@ -258,13 +258,13 @@ export default function WeeklyChecklist({ navigation, compact = false }: WeeklyC
                         {step.completed ? '✓' : ''}
                       </Text>
                     </TouchableOpacity>
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       style={styles.stepContent}
                       onPress={() => step.screen && navigation.navigate(step.screen)}
                     >
                       <Text style={[
-                        styles.stepTitle, 
-                        { 
+                        styles.stepTitle,
+                        {
                           color: theme.text,
                           textDecorationLine: step.completed ? 'line-through' : 'none',
                           opacity: step.completed ? 0.6 : 1,
@@ -277,7 +277,7 @@ export default function WeeklyChecklist({ navigation, compact = false }: WeeklyC
                       </Text>
                     </TouchableOpacity>
                     {step.screen && !step.completed && (
-                      <TouchableOpacity 
+                      <TouchableOpacity
                         style={styles.goButton}
                         onPress={() => navigation.navigate(step.screen)}
                       >

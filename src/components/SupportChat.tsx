@@ -173,7 +173,7 @@ export default function SupportChat({ visible, onClose }: SupportChatProps) {
   // Renderizar mensagem
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
     const isMyMessage = item.direction === 'company_to_admin';
-    const showDate = index === 0 || 
+    const showDate = index === 0 ||
       formatDate(item.created_at) !== formatDate(messages![index - 1].created_at);
 
     return (
@@ -191,7 +191,7 @@ export default function SupportChat({ visible, onClose }: SupportChatProps) {
         ]}>
           <View style={[
             styles.messageBubble,
-            isMyMessage 
+            isMyMessage
               ? [styles.myMessageBubble, { backgroundColor: colors.myMessage }]
               : [styles.theirMessageBubble, { backgroundColor: colors.theirMessage }],
           ]}>
@@ -502,10 +502,8 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
+    // @ts-ignore
+    boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.3)',
     elevation: 8,
   },
   fabIcon: {

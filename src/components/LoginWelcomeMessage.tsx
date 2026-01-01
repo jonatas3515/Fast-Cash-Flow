@@ -32,9 +32,9 @@ export default function LoginWelcomeMessage({ visible, onHide }: LoginWelcomeMes
               name = user.user_metadata.company_name;
             }
           }
-          
+
           setCompanyName(name);
-          
+
           // Definir nome do usuário baseado no tipo de login
           if (name.toLowerCase() === 'fastsavorys') {
             setUserName('Jéssica');
@@ -137,14 +137,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40,
     borderRadius: 20,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 10,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 20,
     elevation: 10,
+    // @ts-ignore - boxShadow for web compatibility (replaces deprecated shadow* props)
+    boxShadow: '0px 10px 20px rgba(0, 0, 0, 0.25)',
     minWidth: 280,
     maxWidth: Dimensions.get('window').width * 0.8,
   },

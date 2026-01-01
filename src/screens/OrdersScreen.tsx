@@ -802,7 +802,6 @@ export default function OrdersScreen() {
     const remainingValue = item.order_value_cents - item.down_payment_cents;
     const isDelivered = item.status === 'completed';
 
-    // Cores para botões de encomendas entregues (cinza)
     const editButtonColor = isDelivered ? '#6b7280' : theme.primary;
     const deleteButtonColor = isDelivered ? '#4b5563' : '#ef4444';
 
@@ -810,7 +809,7 @@ export default function OrdersScreen() {
       <View style={[
         styles.orderCard,
         {
-          backgroundColor: isDelivered ? '#1f2937' : theme.card, // Fundo mais escuro para entregues
+          backgroundColor: isDelivered ? '#1f2937' : theme.card,
           borderColor: isDelivered ? '#374151' : theme.border,
           opacity: isDelivered ? 0.8 : 1
         }
@@ -864,14 +863,13 @@ export default function OrdersScreen() {
           </View>
         </View>
 
-        {item.notes && (
+        {Boolean(item.notes) && (
           <Text style={[styles.notes, { color: isDelivered ? '#6b7280' : theme.textSecondary }]}>
             {item.notes}
           </Text>
         )}
 
         <View style={styles.orderActions}>
-          {/* Botão Entregue - só aparece se não estiver completed ou cancelled */}
           {item.status !== 'completed' && item.status !== 'cancelled' && (
             <TouchableOpacity
               style={[styles.actionButton, { backgroundColor: '#10b981' }]}
@@ -1567,11 +1565,9 @@ const styles = StyleSheet.create({
     marginHorizontal: 32,
     maxWidth: 400,
     width: '90%',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
     elevation: 5,
+    // @ts-ignore - boxShadow for web compatibility (replaces deprecated shadow* props)
+    boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.25)',
   },
   modalTitle: {
     fontSize: 20,

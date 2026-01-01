@@ -222,15 +222,15 @@ export default function AdminSupportScreen({ navigation }: any) {
   // Renderizar conversa
   const renderConversation = (conv: Conversation) => {
     const hasUnread = conv.unread_by_admin > 0;
-    const statusColor = conv.company_status === 'active' ? colors.success : 
-                       conv.company_status === 'trial' ? colors.primary : colors.warning;
+    const statusColor = conv.company_status === 'active' ? colors.success :
+      conv.company_status === 'trial' ? colors.primary : colors.warning;
 
     return (
       <TouchableOpacity
         key={conv.company_id}
         style={[
           styles.conversationCard,
-          { 
+          {
             backgroundColor: hasUnread ? colors.primary + '10' : colors.cardBg,
             borderColor: hasUnread ? colors.primary : colors.border,
           }
@@ -266,16 +266,16 @@ export default function AdminSupportScreen({ navigation }: any) {
           )}
         </View>
         <View style={styles.convMeta}>
-          {conv.last_message_at && (
+          {conv.last_message_at ? (
             <Text style={[styles.convTime, { color: colors.textSecondary }]}>
               {formatTime(conv.last_message_at)}
             </Text>
-          )}
-          {hasUnread && (
+          ) : null}
+          {hasUnread ? (
             <View style={styles.unreadBadge}>
               <Text style={styles.unreadText}>{conv.unread_by_admin}</Text>
             </View>
-          )}
+          ) : null}
         </View>
       </TouchableOpacity>
     );
@@ -292,7 +292,7 @@ export default function AdminSupportScreen({ navigation }: any) {
       ]}>
         <View style={[
           styles.messageBubble,
-          isAdmin 
+          isAdmin
             ? [styles.adminBubble, { backgroundColor: colors.primary }]
             : [styles.companyBubble, { backgroundColor: colors.cardBg }],
         ]}>
@@ -389,8 +389,8 @@ export default function AdminSupportScreen({ navigation }: any) {
             <View style={styles.chatHeaderContent}>
               <Text style={styles.chatHeaderTitle}>{selectedCompany?.company_name}</Text>
               <Text style={styles.chatHeaderSubtitle}>
-                {selectedCompany?.company_status === 'active' ? '✅ Assinante' : 
-                 selectedCompany?.company_status === 'trial' ? '⏳ Trial' : '⚠️ Expirado'}
+                {selectedCompany?.company_status === 'active' ? '✅ Assinante' :
+                  selectedCompany?.company_status === 'trial' ? '⏳ Trial' : '⚠️ Expirado'}
               </Text>
             </View>
           </View>

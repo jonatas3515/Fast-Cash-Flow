@@ -85,6 +85,8 @@ export const getCardStyle = (theme: any, variant: 'default' | 'elevated' | 'outl
                 ...base,
                 ...shadows.md,
                 shadowColor: theme.shadow,
+                // @ts-ignore
+                boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.2)',
             };
         case 'outlined':
             return {
@@ -99,6 +101,8 @@ export const getCardStyle = (theme: any, variant: 'default' | 'elevated' | 'outl
                 borderColor: theme.border,
                 ...shadows.sm,
                 shadowColor: theme.shadow,
+                // @ts-ignore
+                boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.15)',
             };
     }
 };

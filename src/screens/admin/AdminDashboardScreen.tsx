@@ -19,11 +19,11 @@ export default function AdminDashboardScreen({ navigation }: any) {
   const { theme, mode } = useThemeCtx();
   const { width } = useWindowDimensions();
   const isDark = mode === 'dark';
-  
+
   // Detectar se é web e tela larga
   const isWeb = Platform.OS === 'web';
   const isWideScreen = width >= 768;
-  
+
   // Cores dinâmicas baseadas no tema (padronizado com theme.background)
   const colors = {
     background: theme.background,
@@ -64,7 +64,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
       const startOfMonth = new Date();
       startOfMonth.setDate(1);
       startOfMonth.setHours(0, 0, 0, 0);
-      
+
       const { count: approvedThisMonth } = await supabase
         .from('company_requests')
         .select('*', { count: 'exact', head: true })
@@ -103,13 +103,13 @@ export default function AdminDashboardScreen({ navigation }: any) {
 
       // Calcular KPIs
       const totalTrialAndPaid = (trialCompanies ?? 0) + (paidCompanies ?? 0) + (expiredCompanies ?? 0);
-      const conversionRate = totalTrialAndPaid > 0 
-        ? ((paidCompanies ?? 0) / totalTrialAndPaid) * 100 
+      const conversionRate = totalTrialAndPaid > 0
+        ? ((paidCompanies ?? 0) / totalTrialAndPaid) * 100
         : 0;
-      
+
       // Churn Rate (empresas expiradas/bloqueadas do total)
-      const churnRate = totalTrialAndPaid > 0 
-        ? ((expiredCompanies ?? 0) / totalTrialAndPaid) * 100 
+      const churnRate = totalTrialAndPaid > 0
+        ? ((expiredCompanies ?? 0) / totalTrialAndPaid) * 100
         : 0;
 
       // MRR (Monthly Recurring Revenue) - assumindo R$ 9,99/mês
@@ -242,7 +242,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
   }) => {
     const statusColor = isGood === undefined ? color : isGood ? '#10B981' : '#EF4444';
     const cardBgColor = isDark ? `${color}15` : `${color}10`;
-    
+
     return (
       <View style={[
         styles.kpiCard,
@@ -277,7 +277,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
     onPress: () => void;
   }) => {
     const bgColor = isDark ? `${color}15` : `${color}10`;
-    
+
     return (
       <TouchableOpacity
         onPress={onPress}
@@ -426,7 +426,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
       {healthSummary && (
         <View style={styles.section}>
           <SectionHeader icon="🏥" title="SAÚDE DOS CLIENTES" />
-          <HealthScoreSummary 
+          <HealthScoreSummary
             summary={healthSummary}
             onFilterClick={(status) => {
               navigation.navigate('Engajamento', { filterStatus: status });
@@ -622,10 +622,8 @@ const styles = StyleSheet.create({
     padding: 20,
     marginBottom: 0,
     borderLeftWidth: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
+    // @ts-ignore
+    boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.05)',
     elevation: 2,
   },
   statCardContent: {

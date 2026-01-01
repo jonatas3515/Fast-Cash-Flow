@@ -27,10 +27,10 @@ interface OnboardingChecklistProps {
   compact?: boolean;
 }
 
-export default function OnboardingChecklist({ 
-  navigation, 
+export default function OnboardingChecklist({
+  navigation,
   onDismiss,
-  compact = false 
+  compact = false
 }: OnboardingChecklistProps) {
   const { theme, mode } = useThemeCtx();
   const isDark = mode === 'dark';
@@ -87,7 +87,7 @@ export default function OnboardingChecklist({
       const categories_configured = (categoryCount ?? 0) >= 3;
       const first_goal_created = (goalCount ?? 0) >= 1;
       const recurring_expense_added = (recurringCount ?? 0) >= 1;
-      
+
       // Considerar relatório gerado se tem pelo menos 5 transações (dados suficientes para gráficos)
       // Ou verificar localStorage/sessionStorage para flag de relatório acessado
       let first_report_generated = false;
@@ -137,7 +137,7 @@ export default function OnboardingChecklist({
       description: 'Adicione o nome e logo da sua empresa',
       icon: '👤',
       completed: progress?.profile_completed ?? false,
-      action: () => navigation.navigate('Settings'),
+      action: () => navigation.navigate('Configuração'),
     },
     {
       key: 'transactions',
@@ -153,7 +153,7 @@ export default function OnboardingChecklist({
       description: 'Personalize com pelo menos 3 categorias',
       icon: '🏷️',
       completed: progress?.categories_configured ?? false,
-      action: () => navigation.navigate('Settings'),
+      action: () => navigation.navigate('Configuração'),
     },
     {
       key: 'goal',
@@ -233,14 +233,14 @@ export default function OnboardingChecklist({
           <Text style={[styles.expandIcon, { color: colors.textSecondary }]}>▼</Text>
         </View>
         <View style={[styles.progressBar, { backgroundColor: colors.progressBg }]}>
-          <View 
+          <View
             style={[
-              styles.progressFill, 
-              { 
+              styles.progressFill,
+              {
                 width: `${progressPercent}%`,
                 backgroundColor: isComplete ? colors.success : colors.accent,
               }
-            ]} 
+            ]}
           />
         </View>
       </TouchableOpacity>
@@ -285,14 +285,14 @@ export default function OnboardingChecklist({
           </Text>
         </View>
         <View style={[styles.progressBar, { backgroundColor: colors.progressBg }]}>
-          <View 
+          <View
             style={[
-              styles.progressFill, 
-              { 
+              styles.progressFill,
+              {
                 width: `${progressPercent}%`,
                 backgroundColor: isComplete ? colors.success : colors.accent,
               }
-            ]} 
+            ]}
           />
         </View>
       </View>
@@ -313,7 +313,7 @@ export default function OnboardingChecklist({
           >
             <View style={[
               styles.stepCheckbox,
-              { 
+              {
                 backgroundColor: step.completed ? colors.success : 'transparent',
                 borderColor: step.completed ? colors.success : colors.border,
               }
@@ -326,8 +326,8 @@ export default function OnboardingChecklist({
             </View>
             <View style={styles.stepContent}>
               <Text style={[
-                styles.stepTitle, 
-                { 
+                styles.stepTitle,
+                {
                   color: step.completed ? colors.textSecondary : colors.text,
                   textDecorationLine: step.completed ? 'line-through' : 'none',
                 }
