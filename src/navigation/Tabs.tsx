@@ -2,6 +2,9 @@ import React from 'react';
 import { createDrawerNavigator } from '@react-navigation/drawer';
 import DayScreen from '../screens/DayScreen';
 import RangeScreen from '../screens/RangeScreen';
+import DREScreen from '../screens/DREScreen';
+import CategoryReportScreen from '../screens/CategoryReportScreen';
+import AccountsOverviewScreen from '../screens/AccountsOverviewScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import BusinessProfileScreen from '../screens/BusinessProfileScreen';
 import NotificationSettingsScreen from '../screens/NotificationSettingsScreen';
@@ -186,10 +189,31 @@ export default function Tabs() {
         }}
       />
       <Drawer.Screen
+        name="DRE"
+        component={DREScreen}
+        options={{
+          header: () => <CustomHeader title="DRE Gerencial" />,
+        }}
+      />
+      <Drawer.Screen
+        name="Categorias Report"
+        component={CategoryReportScreen}
+        options={{
+          header: () => <CustomHeader title="Relatório por Categoria" />,
+        }}
+      />
+      <Drawer.Screen
         name="Débitos"
         component={DebtsScreen}
         options={{
           header: () => <CustomHeader title="Débitos" />,
+        }}
+      />
+      <Drawer.Screen
+        name="Contas"
+        component={AccountsOverviewScreen}
+        options={{
+          header: () => <CustomHeader title="Contas a Pagar/Receber" />,
         }}
       />
       <Drawer.Screen

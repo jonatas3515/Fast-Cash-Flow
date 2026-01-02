@@ -794,6 +794,40 @@ export default function LandingSettingsScreen() {
                     </View>
                 </CollapsibleWrapper>
 
+                {/* Terms and Privacy Section */}
+                <CollapsibleWrapper id="landing-legal" title="Termos e Privacidade" icon="📜" defaultExpanded={false}>
+                    <View style={{ gap: 16 }}>
+                        <View>
+                            <Text style={labelStyle}>Termos de Uso (Markdown)</Text>
+                            <TextInput
+                                style={[inputStyle, { height: 200, textAlignVertical: 'top' }]}
+                                value={formData.terms_of_use || ''}
+                                onChangeText={(v) => updateField('terms_of_use', v)}
+                                placeholder="Digite os Termos de Uso. Use Markdown para formatação (# Título, ## Subtítulo, - Lista, **negrito**)."
+                                placeholderTextColor={theme.textSecondary}
+                                multiline
+                            />
+                            <Text style={{ color: theme.textSecondary, fontSize: 11, marginTop: 4 }}>
+                                Use Markdown: # Título, ## Subtítulo, **negrito**, - lista
+                            </Text>
+                        </View>
+                        <View>
+                            <Text style={labelStyle}>Política de Privacidade (Markdown)</Text>
+                            <TextInput
+                                style={[inputStyle, { height: 200, textAlignVertical: 'top' }]}
+                                value={formData.privacy_policy || ''}
+                                onChangeText={(v) => updateField('privacy_policy', v)}
+                                placeholder="Digite a Política de Privacidade. Use Markdown para formatação."
+                                placeholderTextColor={theme.textSecondary}
+                                multiline
+                            />
+                            <Text style={{ color: theme.textSecondary, fontSize: 11, marginTop: 4 }}>
+                                Dica: Use **negrito** para destacar informações importantes
+                            </Text>
+                        </View>
+                    </View>
+                </CollapsibleWrapper>
+
                 {/* Actions */}
                 <View style={{ marginTop: 24, gap: 12 }}>
                     <TouchableOpacity

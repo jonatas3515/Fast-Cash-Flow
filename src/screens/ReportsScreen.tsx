@@ -310,37 +310,47 @@ export default function ReportsScreen() {
     }
   };
 
-  // Enviar PDF via WhatsApp (usa Share nativo que funciona melhor)
+  // Enviar via WhatsApp - abre o WhatsApp diretamente onde o usuário escolhe o contato
   const handleShareWhatsApp = async () => {
-    const pdfUri = await exportPDF();
-    if (pdfUri) {
-      try {
-        const monthName = (new Date(ym.year, ym.month - 1, 1)).toLocaleString('pt-BR', { month: 'long' });
+    try {
+      const totals = await getMonthlyTotals(ym.year, ym.month);
+      const monthName = (new Date(ym.year, ym.month - 1, 1)).toLocaleString('pt-BR', { month: 'long' });
 
-        // Usar Share nativo - funciona melhor para WhatsApp
-        await Share.share({
-          message: `📊 Relatório Fast Cash Flow - ${monthName} ${ym.year}`,
-          url: pdfUri,
-          title: 'Relatório Financeiro'
-        }, {
-          dialogTitle: 'Compartilhar via WhatsApp',
-          subject: 'Relatório Fast Cash Flow'
-        });
-      } catch (error: any) {
-        // Se Share falhar, tentar Sharing como fallback
-        if (error.message !== 'User did not share') {
+      // Gerar resumo em texto para o WhatsApp
+      const text = `📊 *Relatório Fast Cash Flow*
+📅 *${monthName} ${ym.year}*
+
+💰 *Entradas:* ${formatMoney(totals.income_cents)}
+💸 *Saídas:* ${formatMoney(totals.expense_cents)}
+💎 *Saldo:* ${formatMoney(totals.balance_cents)}
+
+_Gerado via Fast Cash Flow_`;
+
+      const encodedText = encodeURIComponent(text);
+      const waUrl = `https://wa.me/?text=${encodedText}`;
+
+      if (Platform.OS === 'web') {
+        // Web: tentar navigator.share primeiro, senão abre wa.me
+        if (typeof navigator !== 'undefined' && navigator.share) {
           try {
-            await Sharing.shareAsync(pdfUri, {
-              mimeType: 'application/pdf',
-              dialogTitle: 'Enviar relatório via WhatsApp',
-              UTI: 'com.adobe.pdf'
+            await navigator.share({
+              title: `Relatório Fast Cash Flow - ${monthName} ${ym.year}`,
+              text: text,
             });
-          } catch (sharingError: any) {
-            console.error('Erro ao compartilhar:', sharingError);
-            Alert.alert('Erro', 'Não foi possível compartilhar o PDF');
+            return;
+          } catch (shareError) {
+            // Se usuário cancelou ou não suporta, continua para wa.me
+            console.log('Web Share cancelado ou não suportado, abrindo wa.me');
           }
         }
+        window.open(waUrl, '_blank');
+      } else {
+        // Mobile: abre WhatsApp diretamente via URL
+        await Linking.openURL(waUrl);
       }
+    } catch (error: any) {
+      console.error('Erro ao enviar para WhatsApp:', error);
+      Alert.alert('Erro', 'Não foi possível abrir o WhatsApp');
     }
   };
 
@@ -368,15 +378,13 @@ export default function ReportsScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Botão WhatsApp - apenas mobile */}
-      {Platform.OS !== 'web' && (
-        <TouchableOpacity
-          style={[styles.btn, { backgroundColor: '#25D366', marginTop: 8 }]}
-          onPress={handleShareWhatsApp}
-        >
-          <Text style={styles.btnText}>📱 Enviar via WhatsApp</Text>
-        </TouchableOpacity>
-      )}
+      {/* Botão WhatsApp - funciona em todas as plataformas */}
+      <TouchableOpacity
+        style={[styles.btn, { backgroundColor: '#25D366', marginTop: 8 }]}
+        onPress={handleShareWhatsApp}
+      >
+        <Text style={styles.btnText}>📱 Enviar via WhatsApp</Text>
+      </TouchableOpacity>
 
       {/* Botão Relatório para Contador */}
       <AccountantReportButton year={ym.year} month={ym.month} />

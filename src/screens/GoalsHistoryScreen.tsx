@@ -163,6 +163,52 @@ export default function GoalsHistoryScreen() {
       </View>
 
       <View style={styles.content}>
+        {/* Summary Card */}
+        {goalsQuery.data && goalsQuery.data.length > 0 && (
+          <View style={[styles.summaryCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Text style={[styles.summaryTitle, { color: theme.text }]}>📊 Resumo de Performance</Text>
+            <View style={styles.summaryStats}>
+              <View style={styles.statItem}>
+                <Text style={[styles.statValue, { color: '#16a34a' }]}>
+                  {goalsQuery.data.filter(g => g.status === 'Atingida').length}
+                </Text>
+                <Text style={[styles.statLabel, { color: theme.textSecondary }]}>🟢 Atingidas</Text>
+              </View>
+              <View style={[styles.statDivider, { backgroundColor: theme.border }]} />
+              <View style={styles.statItem}>
+                <Text style={[styles.statValue, { color: '#ef4444' }]}>
+                  {goalsQuery.data.filter(g => g.status !== 'Atingida').length}
+                </Text>
+                <Text style={[styles.statLabel, { color: theme.textSecondary }]}>🔴 Não Atingidas</Text>
+              </View>
+              <View style={[styles.statDivider, { backgroundColor: theme.border }]} />
+              <View style={styles.statItem}>
+                <Text style={[styles.statValue, { color: theme.text }]}>
+                  {Math.round(goalsQuery.data.reduce((sum, g) => sum + g.percent, 0) / goalsQuery.data.length)}%
+                </Text>
+                <Text style={[styles.statLabel, { color: theme.textSecondary }]}>📈 Média</Text>
+              </View>
+            </View>
+            {/* Trend Indicator */}
+            {goalsQuery.data.length >= 2 && (
+              <View style={styles.trendContainer}>
+                {(() => {
+                  const recent = goalsQuery.data.slice(0, Math.min(3, goalsQuery.data.length));
+                  const avgRecent = recent.reduce((sum, g) => sum + g.percent, 0) / recent.length;
+                  const older = goalsQuery.data.slice(Math.min(3, goalsQuery.data.length));
+                  const avgOlder = older.length > 0 ? older.reduce((sum, g) => sum + g.percent, 0) / older.length : avgRecent;
+                  const trend = avgRecent >= avgOlder ? 'up' : 'down';
+                  return (
+                    <Text style={[styles.trendText, { color: trend === 'up' ? '#16a34a' : '#ef4444' }]}>
+                      {trend === 'up' ? '📈 Tendência de alta' : '📉 Tendência de queda'}
+                    </Text>
+                  );
+                })()}
+              </View>
+            )}
+          </View>
+        )}
+
         {goalsQuery.data?.length === 0 ? (
           <View style={styles.emptyContainer}>
             <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
@@ -277,5 +323,51 @@ const styles = StyleSheet.create({
   progressFill: {
     height: '100%',
     borderRadius: 3,
+  },
+  // Summary card styles
+  summaryCard: {
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  summaryTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  summaryStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+  },
+  statItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 11,
+    textAlign: 'center',
+  },
+  statDivider: {
+    width: 1,
+    height: 40,
+  },
+  trendContainer: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+    alignItems: 'center',
+  },
+  trendText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, ScrollView, Platform, Dimensions, Image, ViewStyle, Animated } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, Platform, Dimensions, Image, ViewStyle, Animated, Linking } from 'react-native';
 import { useThemeCtx } from '../theme/ThemeProvider';
 import { getPublishedLandingSettings, DEFAULT_LANDING_SETTINGS } from '../repositories/landing_settings';
 
@@ -146,6 +146,8 @@ export default function LandingPage({ trialDays, onRegister, onLogin }: Props) {
     const fadeAnim = React.useRef(new Animated.Value(1)).current;
     const scrollViewRef = React.useRef<ScrollView>(null);
     const sectionRefs = React.useRef<{ [key: string]: number }>({});
+    const [currentPage, setCurrentPage] = React.useState<'home' | 'terms' | 'privacy'>('home');
+    const [tooltipVisible, setTooltipVisible] = React.useState(false);
 
     // State for CMS settings (using useState instead of useQuery since LandingPage is outside QueryClientProvider)
     const [cmsSettings, setCmsSettings] = React.useState<typeof DEFAULT_LANDING_SETTINGS | null>(null);
@@ -212,6 +214,83 @@ export default function LandingPage({ trialDays, onRegister, onLogin }: Props) {
     };
 
     const SECTION_PADDING = 48;
+
+    // Simple markdown renderer for legal pages
+    const renderMarkdown = (text: string) => {
+        const lines = text.split('\n');
+        return lines.map((line, index) => {
+            const trimmed = line.trim();
+            if (trimmed.startsWith('# ')) {
+                return <Text key={index} style={{ color: theme.text, fontSize: 28, fontWeight: '800', marginTop: 24, marginBottom: 12 }}>{trimmed.slice(2)}</Text>;
+            }
+            if (trimmed.startsWith('## ')) {
+                return <Text key={index} style={{ color: theme.text, fontSize: 20, fontWeight: '700', marginTop: 20, marginBottom: 8 }}>{trimmed.slice(3)}</Text>;
+            }
+            if (trimmed.startsWith('- ')) {
+                return <Text key={index} style={{ color: theme.textSecondary, fontSize: 15, lineHeight: 24, marginLeft: 16 }}>• {trimmed.slice(2)}</Text>;
+            }
+            if (trimmed.startsWith('**') && trimmed.endsWith('**')) {
+                return <Text key={index} style={{ color: theme.text, fontSize: 15, fontWeight: '700', lineHeight: 24, marginTop: 8 }}>{trimmed.slice(2, -2)}</Text>;
+            }
+            if (trimmed === '') {
+                return <View key={index} style={{ height: 8 }} />;
+            }
+            // Handle inline bold **text**
+            const parts = trimmed.split(/\*\*(.*?)\*\*/g);
+            if (parts.length > 1) {
+                return (
+                    <Text key={index} style={{ color: theme.textSecondary, fontSize: 15, lineHeight: 24 }}>
+                        {parts.map((part, i) => i % 2 === 1 ? <Text key={i} style={{ fontWeight: '700', color: theme.text }}>{part}</Text> : part)}
+                    </Text>
+                );
+            }
+            return <Text key={index} style={{ color: theme.textSecondary, fontSize: 15, lineHeight: 24 }}>{trimmed}</Text>;
+        });
+    };
+
+    // Render Legal Pages (Terms/Privacy)
+    if (currentPage !== 'home') {
+        const content = currentPage === 'terms' ? settings.terms_of_use : settings.privacy_policy;
+        const title = currentPage === 'terms' ? 'Termos de Uso' : 'Política de Privacidade';
+
+        return (
+            <View style={{ flex: 1, backgroundColor: theme.background }}>
+                {/* Header */}
+                <View style={{
+                    backgroundColor: mode === 'dark' ? 'rgba(31,41,55,0.95)' : 'rgba(249,250,251,0.95)',
+                    borderBottomWidth: 1,
+                    borderBottomColor: theme.border,
+                    paddingVertical: 16,
+                    paddingHorizontal: 24,
+                }}>
+                    <View style={{ ...sectionStyle, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <TouchableOpacity
+                            onPress={() => setCurrentPage('home')}
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+                        >
+                            <Text style={{ color: theme.primary, fontSize: 16, fontWeight: '600' }}>← Voltar à Tela Inicial</Text>
+                        </TouchableOpacity>
+                        <Image
+                            source={mode === 'dark' ? require('../../assets/landing/Logo White.png') : require('../../assets/landing/Logo Black.png')}
+                            resizeMode="contain"
+                            style={{ width: 100, height: 36 }}
+                        />
+                    </View>
+                </View>
+
+                {/* Content */}
+                <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 40 }}>
+                    <View style={{ ...sectionStyle }}>
+                        {content ? renderMarkdown(content) : (
+                            <Text style={{ color: theme.textSecondary, fontSize: 16, textAlign: 'center', marginTop: 40 }}>
+                                Conteúdo não configurado. Configure os {title} no painel de administração.
+                            </Text>
+                        )}
+                    </View>
+                </ScrollView>
+            </View>
+        );
+    }
 
     return (
         <View style={{ flex: 1, backgroundColor: theme.background }}>
@@ -697,34 +776,84 @@ export default function LandingPage({ trialDays, onRegister, onLogin }: Props) {
                                         {
                                             dark: 'https://i.im.ge/2025/11/02/nzgjAc.Logo-White.png',
                                             light: 'https://i.im.ge/2025/11/03/nH0whJ.Logo-Black.png',
+                                            link: 'https://fastcashflow.vercel.app/',
+                                            tooltip: '',
                                         },
                                         {
                                             dark: 'https://i.im.ge/2025/12/20/BSw0fS.JusJNC-White.png',
                                             light: 'https://i.im.ge/2025/12/20/BSwiNy.JusJNC-Black.png',
+                                            link: '',
+                                            tooltip: 'Sistema em produção - Gerenciador de Escritórios',
                                         },
                                         {
                                             dark: 'https://i.im.ge/2025/10/18/nRo1MP.Logo-transparente.png',
                                             light: 'https://i.im.ge/2025/10/18/nRo1MP.Logo-transparente.png',
+                                            link: 'https://www.nevesecosta.com.br/',
+                                            tooltip: '',
                                         },
                                         {
                                             dark: 'https://i.im.ge/2025/12/21/BDiDfm.Animes-JNC.png',
                                             light: 'https://i.im.ge/2025/12/21/BDiDfm.Animes-JNC.png',
+                                            link: 'https://www.instagram.com/animesjnc/',
+                                            tooltip: '',
+                                        },
+                                        {
+                                            dark: require('../../Fast Savory\'s.png'),
+                                            light: require('../../Fast Savory\'s.png'),
+                                            link: 'https://fastsavorys.vercel.app/pages/fast.html',
+                                            isLocal: true,
+                                            tooltip: '',
                                         },
                                     ].map((logo, idx) => (
-                                        <Image
+                                        <TouchableOpacity
                                             key={idx}
-                                            source={{ uri: mode === 'dark' ? logo.dark : logo.light }}
-                                            resizeMode="contain"
-                                            style={{
-                                                width: isDesktop
-                                                    ? (idx === 0 ? 120 : (idx === 1 ? 130 : (idx === 2 ? 150 : 120)))
-                                                    : (idx === 0 ? 90 : (idx === 1 ? 96 : (idx === 2 ? 110 : 90))),
-                                                height: idx === 0 ? 34 : (idx === 1 ? 50 : (idx === 2 ? 56 : 42)),
-                                                marginLeft: isDesktop && idx > 0 ? -14 : 0,
+                                            onPress={() => {
+                                                if (logo.link) {
+                                                    if (Platform.OS === 'web') {
+                                                        window.open(logo.link, '_blank');
+                                                    } else {
+                                                        Linking.openURL(logo.link);
+                                                    }
+                                                } else if (logo.tooltip) {
+                                                    setTooltipVisible(!tooltipVisible);
+                                                }
                                             }}
-                                        />
+                                            style={{ opacity: 1 }}
+                                        >
+                                            <Image
+                                                source={(logo as any).isLocal ? (mode === 'dark' ? logo.dark : logo.light) : { uri: mode === 'dark' ? logo.dark : logo.light }}
+                                                resizeMode="contain"
+                                                style={{
+                                                    width: isDesktop
+                                                        ? (idx === 0 ? 120 : (idx === 1 ? 130 : (idx === 2 ? 150 : (idx === 3 ? 120 : 110))))
+                                                        : (idx === 0 ? 90 : (idx === 1 ? 96 : (idx === 2 ? 110 : (idx === 3 ? 90 : 80)))),
+                                                    height: idx === 0 ? 34 : (idx === 1 ? 50 : (idx === 2 ? 56 : (idx === 3 ? 42 : 50))),
+                                                    marginLeft: isDesktop && idx > 0 ? -14 : 0,
+                                                }}
+                                            />
+                                        </TouchableOpacity>
                                     ))}
                                 </View>
+                                {/* Inline Tooltip Card */}
+                                {tooltipVisible && (
+                                    <View style={{
+                                        marginTop: 16,
+                                        backgroundColor: mode === 'dark' ? '#374151' : '#FEF3C7',
+                                        borderRadius: 10,
+                                        padding: 14,
+                                        alignSelf: 'center',
+                                        maxWidth: 360,
+                                        borderWidth: 1,
+                                        borderColor: mode === 'dark' ? '#4B5563' : '#F59E0B',
+                                    }}>
+                                        <Text style={{ color: mode === 'dark' ? '#FCD34D' : '#92400E', fontSize: 14, fontWeight: '600', textAlign: 'center' }}>
+                                            🚧 Sistema em produção - Gerenciador de Escritórios
+                                        </Text>
+                                        <TouchableOpacity onPress={() => setTooltipVisible(false)} style={{ position: 'absolute', top: 6, right: 10 }}>
+                                            <Text style={{ color: mode === 'dark' ? '#9CA3AF' : '#92400E', fontSize: 16 }}>✕</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                )}
                             </View>
                         </View>
 
@@ -734,8 +863,8 @@ export default function LandingPage({ trialDays, onRegister, onLogin }: Props) {
                                 <TouchableOpacity onPress={() => scrollToSection('features')}><Text style={{ color: theme.textSecondary, fontSize: 14 }}>Como Funciona</Text></TouchableOpacity>
                                 <TouchableOpacity onPress={() => scrollToSection('plans')}><Text style={{ color: theme.textSecondary, fontSize: 14 }}>Planos</Text></TouchableOpacity>
                                 <TouchableOpacity onPress={() => scrollToSection('audience')}><Text style={{ color: theme.textSecondary, fontSize: 14 }}>Pra Quem</Text></TouchableOpacity>
-                                <Text style={{ color: theme.textSecondary, fontSize: 14 }}>Termos de Uso</Text>
-                                <Text style={{ color: theme.textSecondary, fontSize: 14 }}>Privacidade</Text>
+                                <TouchableOpacity onPress={() => setCurrentPage('terms')}><Text style={{ color: theme.textSecondary, fontSize: 14 }}>Termos de Uso</Text></TouchableOpacity>
+                                <TouchableOpacity onPress={() => setCurrentPage('privacy')}><Text style={{ color: theme.textSecondary, fontSize: 14 }}>Privacidade</Text></TouchableOpacity>
                             </View>
                         </View>
 

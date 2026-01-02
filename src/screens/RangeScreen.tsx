@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, Alert, Platform, ScrollView, useWindowDimensions } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, Alert, Platform, ScrollView, useWindowDimensions, Linking } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import { useThemeCtx } from '../theme/ThemeProvider';
@@ -8,6 +8,7 @@ import { getTransactionsByRange } from '../repositories/transactions';
 import { listAllDebts } from '../repositories/debts';
 import { formatCentsBRL } from '../utils/money';
 import { listRecurringExpenses, RecurringExpense } from '../repositories/recurring_expenses';
+import { isTxFromRecurring, classifyFixedVsVariable } from '../utils/transactionClassifier';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
@@ -32,50 +33,6 @@ function normalizeYMD(v: string) {
     if (!isNaN(d.getTime())) return `${y}-${mm}-${dd}`;
   } catch { }
   return v;
-}
-
-function isTxFromRecurring(tx: any, recurring: RecurringExpense[]): boolean {
-  if (!tx || tx.type !== 'expense') return false;
-  const descTx = (tx.description || '').toLowerCase().trim();
-  if (!descTx) return false;
-
-  for (const rec of recurring) {
-    const descRec = (rec.description || '').toLowerCase().trim();
-    if (!descRec) continue;
-    if (!(descTx.includes(descRec) || descRec.includes(descTx))) continue;
-
-    const diff = Math.abs((tx.amount_cents || 0) - (rec.amount_cents || 0));
-    const AMOUNT_TOLERANCE_PERCENT = 0.08;
-    const MIN_TOLERANCE_CENTS = 200;
-    const tolerance = Math.max(Math.round(rec.amount_cents * AMOUNT_TOLERANCE_PERCENT), MIN_TOLERANCE_CENTS);
-    if (diff > tolerance) continue;
-
-    const txDate = tx.date as string;
-    if (rec.start_date && txDate < rec.start_date) continue;
-    if (rec.end_date && txDate > rec.end_date) continue;
-
-    return true;
-  }
-
-  return false;
-}
-
-async function classifyFixedVsVariableInRange(txs: any[]): Promise<{ fixed: number; variable: number }> {
-  const recurring = await listRecurringExpenses();
-  let exp = 0;
-  let fixed = 0;
-
-  for (const tx of txs) {
-    if (tx.type !== 'expense') continue;
-    const amount = tx.amount_cents || 0;
-    exp += amount;
-    if (isTxFromRecurring(tx, recurring)) {
-      fixed += amount;
-    }
-  }
-
-  const variable = Math.max(0, exp - fixed);
-  return { fixed, variable };
 }
 
 export default function RangeScreen() {
@@ -175,7 +132,7 @@ export default function RangeScreen() {
         }
       } catch { }
     }
-    const { fixed: fixedExp, variable: variableExp } = await classifyFixedVsVariableInRange(txs as any[]);
+    const { fixed: fixedExp, variable: variableExp } = await classifyFixedVsVariable(txs as any[]);
 
     // Aggregate by day for a simple daily bar chart in the PDF
     const map = new Map<string, { income: number; expense: number }>();
@@ -274,8 +231,51 @@ export default function RangeScreen() {
 
   const sendWhatsApp = async () => {
     if (!valid) { Alert.alert('Intervalo inválido'); return; }
-    // Reutiliza o MESMO HTML do exportPDF para garantir mesmo PDF
-    await exportPDFToWhatsApp();
+
+    try {
+      const txs = txQ.data || [];
+      let incTot = 0, expTot = 0;
+      txs.forEach(tx => tx.type === 'income' ? incTot += (tx.amount_cents || 0) : expTot += (tx.amount_cents || 0));
+      const balTot = incTot - expTot;
+
+      // Gerar resumo em texto para o WhatsApp
+      const text = `📊 *Relatório Fast Cash Flow*
+📅 *${toDDMMYYYY(start)} a ${toDDMMYYYY(end)}*
+
+💰 *Entradas:* ${formatMoney(incTot)}
+💸 *Saídas:* ${formatMoney(expTot)}
+💎 *Saldo:* ${formatMoney(balTot)}
+
+📝 *Transações:* ${txs.length} lançamentos
+
+_Gerado via Fast Cash Flow_`;
+
+      const encodedText = encodeURIComponent(text);
+      const waUrl = `https://wa.me/?text=${encodedText}`;
+
+      if (Platform.OS === 'web') {
+        // Web: tentar navigator.share primeiro, senão abre wa.me
+        if (typeof navigator !== 'undefined' && (navigator as any).share) {
+          try {
+            await (navigator as any).share({
+              title: `Relatório Fast Cash Flow - ${toDDMMYYYY(start)} a ${toDDMMYYYY(end)}`,
+              text: text,
+            });
+            return;
+          } catch (shareError) {
+            // Se usuário cancelou ou não suporta, continua para wa.me
+            console.log('Web Share cancelado ou não suportado, abrindo wa.me');
+          }
+        }
+        window.open(waUrl, '_blank');
+      } else {
+        // Mobile: abre WhatsApp diretamente via URL
+        await Linking.openURL(waUrl);
+      }
+    } catch (error: any) {
+      console.error('Erro ao enviar para WhatsApp:', error);
+      Alert.alert('Erro', 'Não foi possível abrir o WhatsApp');
+    }
   };
 
   // helper para compartilhar o mesmo PDF no WhatsApp
@@ -297,7 +297,7 @@ export default function RangeScreen() {
         }
       } catch { }
     }
-    const { fixed: fixedExp, variable: variableExp } = await classifyFixedVsVariableInRange(txs as any[]);
+    const { fixed: fixedExp, variable: variableExp } = await classifyFixedVsVariable(txs as any[]);
 
     // replicar cards e gráfico
     const map = new Map<string, { income: number; expense: number }>();

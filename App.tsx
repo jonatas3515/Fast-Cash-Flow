@@ -188,7 +188,7 @@ function AppInner() {
         <AuthStack.Navigator id={undefined}>
           <AuthStack.Screen name="Landing" component={LandingScreen} options={{ headerShown: false }} />
           <AuthStack.Screen name="Login" options={{ headerShown: false }}>
-            {() => <LoginGate onOk={(r) => { setRole(r); setAuthed(true); }} />}
+            {({ navigation }) => <LoginGate onOk={(r) => { setRole(r); setAuthed(true); }} onBack={() => navigation.navigate('Landing')} />}
           </AuthStack.Screen>
           <AuthStack.Screen name="Cadastro" component={RegisterScreen} options={{ title: 'Cadastro' }} />
         </AuthStack.Navigator>

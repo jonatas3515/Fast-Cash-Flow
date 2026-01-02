@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TextInput, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Platform, Image } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { supabase } from '../lib/supabase';
 import { useThemeCtx } from '../theme/ThemeProvider';
@@ -15,9 +15,9 @@ const ADMIN_EMAIL = 'admin@fastcashflow.com';
 const KEY = 'auth_ok';
 const ROLE_KEY = 'auth_role';
 
-type Props = { onOk: (role: 'admin' | 'user') => void };
+type Props = { onOk: (role: 'admin' | 'user') => void; onBack?: () => void };
 
-export default function LoginGate({ onOk }: Props) {
+export default function LoginGate({ onOk, onBack }: Props) {
   const [user, setUser] = React.useState('');
   const [pass, setPass] = React.useState('');
   const [error, setError] = React.useState('');
@@ -423,9 +423,28 @@ export default function LoginGate({ onOk }: Props) {
     <View style={{ flex: 1, backgroundColor: theme.background }}>
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 16 }}>
         <View style={{ width: '100%', maxWidth: 420, backgroundColor: theme.card, borderRadius: 12, padding: 20 }}>
+          {/* Logo */}
+          <View style={{ alignItems: 'center', marginBottom: 16 }}>
+            <Image
+              source={mode === 'dark'
+                ? require('../../assets/landing/Logo White.png')
+                : require('../../assets/landing/Logo Black.png')}
+              resizeMode="contain"
+              style={{ width: 140, height: 50 }}
+            />
+          </View>
           <Text style={{ color: theme.text, fontSize: 22, fontWeight: '800', marginBottom: 12, textAlign: 'center' }}>Entrar</Text>
           {loginFormContent}
         </View>
+        {/* Back Button */}
+        {onBack && (
+          <TouchableOpacity
+            onPress={onBack}
+            style={{ marginTop: 16, paddingVertical: 12, paddingHorizontal: 24 }}
+          >
+            <Text style={{ color: theme.primary, fontSize: 15, fontWeight: '600' }}>← Voltar à Tela Inicial</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {firstLoginVisible && (
