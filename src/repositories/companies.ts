@@ -180,3 +180,94 @@ export async function getCompanySegment(companyId: string): Promise<string | nul
     return null;
   }
 }
+
+// ===== Configuração PIX =====
+
+export interface PixConfig {
+  pixKey: string | null;
+  pixMerchantName: string | null;
+  pixMerchantCity: string | null;
+}
+
+/**
+ * Carrega a configuração PIX de uma empresa
+ * Retorna null se a empresa não existir ou não tiver configuração
+ */
+export async function getPixConfig(companyId: string): Promise<PixConfig | null> {
+  try {
+    const { data, error } = await supabase
+      .from('companies')
+      .select('pix_key, pix_merchant_name, pix_merchant_city')
+      .eq('id', companyId)
+      .single();
+
+    if (error) {
+      // Se as colunas não existirem, retorna configuração vazia
+      if (error.message?.includes('column') || error.code === '42703') {
+        console.warn('Colunas PIX não existem na tabela companies. Retornando config vazia.');
+        return { pixKey: null, pixMerchantName: null, pixMerchantCity: null };
+      }
+      if (error.code === 'PGRST116') return null; // Não encontrado
+      console.error('Erro ao carregar config PIX:', error);
+      return null;
+    }
+
+    return {
+      pixKey: (data as any)?.pix_key || null,
+      pixMerchantName: (data as any)?.pix_merchant_name || null,
+      pixMerchantCity: (data as any)?.pix_merchant_city || null,
+    };
+  } catch (err) {
+    console.error('Exceção ao carregar config PIX:', err);
+    return null;
+  }
+}
+
+/**
+ * Atualiza a configuração PIX de uma empresa
+ * Campos vazios ou null serão salvos como null no banco
+ */
+export async function updatePixConfig(companyId: string, config: Partial<PixConfig>): Promise<boolean> {
+  try {
+    const updateData: Record<string, string | null> = {};
+
+    if (config.pixKey !== undefined) {
+      updateData.pix_key = config.pixKey?.trim() || null;
+    }
+    if (config.pixMerchantName !== undefined) {
+      updateData.pix_merchant_name = config.pixMerchantName?.trim()?.slice(0, 25) || null;
+    }
+    if (config.pixMerchantCity !== undefined) {
+      updateData.pix_merchant_city = config.pixMerchantCity?.trim()?.slice(0, 15) || null;
+    }
+
+    if (Object.keys(updateData).length === 0) return true;
+
+    const { error } = await supabase
+      .from('companies')
+      .update(updateData)
+      .eq('id', companyId);
+
+    if (error) {
+      // Se as colunas não existirem, informar ao usuário
+      if (error.message?.includes('column') || error.code === '42703') {
+        console.error('Colunas PIX não existem na tabela companies. Execute a migração SQL necessária.');
+        throw new Error('Configuração PIX não disponível. Contate o suporte.');
+      }
+      throw error;
+    }
+
+    return true;
+  } catch (err) {
+    console.error('Erro ao atualizar config PIX:', err);
+    throw err;
+  }
+}
+
+/**
+ * Verifica se a empresa tem configuração PIX válida para gerar QR Code
+ */
+export function isPixConfigValid(config: PixConfig | null): boolean {
+  if (!config) return false;
+  return !!(config.pixKey && config.pixMerchantName && config.pixMerchantCity);
+}

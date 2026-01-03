@@ -30,6 +30,7 @@ const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
 
 const STATUS_FILTERS = [
   { key: 'all', label: 'Todos' },
+  { key: 'pendentes_vencidas', label: '📋 Pendentes + Vencidos' },
   { key: 'overdue', label: '🔴 Vencidos' },
   { key: 'pending', label: '🟡 Pendentes' },
   { key: 'partial', label: '🟠 Parciais' },
@@ -41,7 +42,7 @@ export default function ReceivablesScreen() {
   const qc = useQueryClient();
   const toast = useToast();
 
-  const [filter, setFilter] = useState('all');
+  const [filter, setFilter] = useState('pendentes_vencidas');
   const [showForm, setShowForm] = useState(false);
   const [clientName, setClientName] = useState('');
   const [description, setDescription] = useState('');
@@ -171,7 +172,9 @@ export default function ReceivablesScreen() {
   const filteredData = React.useMemo(() => {
     let data = receivablesQuery.data || [];
 
-    if (filter !== 'all') {
+    if (filter === 'pendentes_vencidas') {
+      data = data.filter(r => r.status === 'pending' || r.status === 'overdue' || r.status === 'partial');
+    } else if (filter !== 'all') {
       data = data.filter(r => r.status === filter);
     }
 

@@ -12,15 +12,20 @@ import {
   Alert,
   ActivityIndicator,
   Linking,
+  Clipboard,
 } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useRoute } from '@react-navigation/native';
 import { useThemeCtx } from '../theme/ThemeProvider';
 import { useToast } from '../ui/ToastProvider';
 import { supabase } from '../lib/supabase';
 import { getCurrentCompanyId } from '../lib/company';
 import { formatCentsBRL, parseBRLToCents, maskBRLInput } from '../utils/money';
+import { generatePixPayload, type PixParams } from '../utils/pix';
+import { getPixConfig, isPixConfigValid, type PixConfig } from '../repositories/companies';
 import ScreenTitle from '../components/ScreenTitle';
 import FilterHeader, { normalizeText } from '../components/FilterHeader';
+import QRCode from 'react-native-qrcode-svg';
 
 interface ReceiptItem {
   id: string;
@@ -74,6 +79,10 @@ export default function ReceiptScreen({ navigation }: any) {
   const { theme } = useThemeCtx();
   const toast = useToast();
   const queryClient = useQueryClient();
+  const route = useRoute<any>();
+
+  // Suporte a itens iniciais via params (do POSScreen)
+  const initialItems = route.params?.initialItems as ReceiptItem[] | undefined;
 
   const [companyId, setCompanyId] = React.useState<string | null>(null);
   const [companyInfo, setCompanyInfo] = React.useState<any>(null);
@@ -81,8 +90,8 @@ export default function ReceiptScreen({ navigation }: any) {
   // Abas
   const [activeTab, setActiveTab] = React.useState<'new' | 'history'>('new');
 
-  // Estado do cupom
-  const [items, setItems] = React.useState<ReceiptItem[]>([]);
+  // Estado do cupom - inicializar com itens recebidos via params
+  const [items, setItems] = React.useState<ReceiptItem[]>(initialItems || []);
   const [selectedClient, setSelectedClient] = React.useState<Client | null>(null);
   const [discountText, setDiscountText] = React.useState('');
   const [discountCents, setDiscountCents] = React.useState(0);
@@ -100,6 +109,11 @@ export default function ReceiptScreen({ navigation }: any) {
   const [showClientModal, setShowClientModal] = React.useState(false);
   const [showPreviewModal, setShowPreviewModal] = React.useState(false);
   const [showPrintModal, setShowPrintModal] = React.useState(false);
+  const [showPixModal, setShowPixModal] = React.useState(false);
+
+  // PIX
+  const [pixConfig, setPixConfig] = React.useState<PixConfig | null>(null);
+  const [pixPayload, setPixPayload] = React.useState('');
 
   // Modal de confirmação inline (para web)
   const [confirmAction, setConfirmAction] = React.useState<{ type: 'cancel' | 'delete', receiptId: string } | null>(null);
@@ -133,6 +147,10 @@ export default function ReceiptScreen({ navigation }: any) {
           .eq('id', id)
           .single();
         if (data) setCompanyInfo(data);
+
+        // Carregar configuração PIX
+        const config = await getPixConfig(id);
+        setPixConfig(config);
       }
     })();
   }, []);
@@ -397,6 +415,25 @@ export default function ReceiptScreen({ navigation }: any) {
       setShowPreviewModal(false);
       setShowPrintModal(true);
 
+      // Verificar se pagamento foi PIX e gerar QR Code
+      const hasPixPayment = payments.some(p => p.method === 'pix');
+      if (hasPixPayment && isPixConfigValid(pixConfig) && pixConfig && total > 0) {
+        try {
+          const payload = generatePixPayload({
+            pixKey: pixConfig.pixKey!,
+            merchantName: pixConfig.pixMerchantName!,
+            merchantCity: pixConfig.pixMerchantCity!,
+            amount: total / 100, // Converter centavos para reais
+            txid: `REC${receipt.receipt_number}`,
+          });
+          setPixPayload(payload);
+          // Abrir modal após um breve delay para não sobrepor o modal de impressão
+          setTimeout(() => setShowPixModal(true), 500);
+        } catch (err) {
+          console.error('Erro ao gerar payload PIX:', err);
+        }
+      }
+
       setItems([]);
       setSelectedClient(null);
       setDiscountText('');
@@ -410,6 +447,45 @@ export default function ReceiptScreen({ navigation }: any) {
       toast.show('Erro: ' + err.message, 'error');
     },
   });
+
+  // Função para gerar QR Code PIX independentemente (antes de emitir cupom)
+  const generatePixQRCode = () => {
+    const hasPixPayment = payments.some(p => p.method === 'pix');
+
+    if (!hasPixPayment) {
+      toast.show('Selecione PIX como forma de pagamento primeiro', 'error');
+      return;
+    }
+
+    if (!isPixConfigValid(pixConfig) || !pixConfig) {
+      toast.show('Configure a chave PIX nas configurações primeiro', 'error');
+      return;
+    }
+
+    if (total <= 0) {
+      toast.show('Adicione itens ao cupom primeiro', 'error');
+      return;
+    }
+
+    try {
+      const payload = generatePixPayload({
+        pixKey: pixConfig.pixKey!,
+        merchantName: pixConfig.pixMerchantName!,
+        merchantCity: pixConfig.pixMerchantCity!,
+        amount: total / 100,
+        txid: `TMP${Date.now()}`,
+        description: `Pagamento ${items.length} itens`,
+      });
+
+      setPixPayload(payload);
+      setShowPixModal(true);
+      toast.show('QR Code PIX gerado!', 'success');
+    } catch (error) {
+      console.error('Erro ao gerar PIX:', error);
+      toast.show('Erro ao gerar QR Code PIX', 'error');
+    }
+  };
+
 
   // Mutation cancelar cupom
   const cancelReceiptMutation = useMutation({
@@ -1115,6 +1191,17 @@ export default function ReceiptScreen({ navigation }: any) {
 
           {/* Botões */}
           <View style={styles.buttonsContainer}>
+            {/* Botão PIX QR Code - somente quando PIX selecionado */}
+            {payments.some(p => p.method === 'pix') && (
+              <TouchableOpacity
+                style={[styles.pixQrBtn, { backgroundColor: '#06b6d4' }]}
+                onPress={generatePixQRCode}
+                disabled={items.length === 0}
+              >
+                <Text style={[styles.pixQrBtnText, { color: '#fff' }]}>📱 Gerar QR Code PIX</Text>
+              </TouchableOpacity>
+            )}
+
             <TouchableOpacity
               style={[styles.previewBtn, { borderColor: theme.primary }]}
               onPress={() => items.length > 0 && setShowPreviewModal(true)}
@@ -1409,6 +1496,97 @@ export default function ReceiptScreen({ navigation }: any) {
           </View>
         </View>
       </Modal>
+
+      {/* Modal PIX QR Code */}
+      <Modal visible={showPixModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, styles.previewModal, { backgroundColor: theme.card }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>📱 Pagamento PIX</Text>
+              <TouchableOpacity onPress={() => setShowPixModal(false)}>
+                <Text style={styles.modalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {/* QR Code */}
+              <View style={{ alignItems: 'center', marginVertical: 20 }}>
+                {pixPayload ? (
+                  <View style={{ backgroundColor: '#fff', padding: 16, borderRadius: 12 }}>
+                    <QRCode value={pixPayload} size={200} />
+                  </View>
+                ) : (
+                  <Text style={{ color: theme.textSecondary }}>Gerando QR Code...</Text>
+                )}
+              </View>
+
+              {/* Valor */}
+              <View style={{ alignItems: 'center', marginBottom: 16 }}>
+                <Text style={{ color: theme.textSecondary, fontSize: 14 }}>Valor a pagar:</Text>
+                <Text style={{ color: theme.text, fontSize: 28, fontWeight: '800', marginTop: 4 }}>
+                  {formatCentsBRL(total)}
+                </Text>
+              </View>
+
+              {/* Copia e Cola */}
+              <View style={{ marginTop: 16 }}>
+                <Text style={{ color: theme.text, fontWeight: '600', fontSize: 14, marginBottom: 8 }}>
+                  Código Copia e Cola:
+                </Text>
+                <View style={{ backgroundColor: theme.background, borderRadius: 10, padding: 12 }}>
+                  <Text
+                    selectable
+                    style={{ color: theme.text, fontSize: 10, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' }}
+                    numberOfLines={4}
+                  >
+                    {pixPayload}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={{ backgroundColor: '#06b6d4', borderRadius: 10, paddingVertical: 14, marginTop: 12, alignItems: 'center' }}
+                  onPress={() => {
+                    if (Platform.OS === 'web') {
+                      navigator.clipboard?.writeText(pixPayload).then(() => {
+                        toast.show('Código copiado!', 'success');
+                      }).catch(() => {
+                        toast.show('Erro ao copiar', 'error');
+                      });
+                    } else {
+                      Clipboard.setString(pixPayload);
+                      toast.show('Código copiado!', 'success');
+                    }
+                  }}
+                >
+                  <Text style={{ color: '#fff', fontWeight: '600', fontSize: 15 }}>📋 Copiar Código PIX</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Botão Confirmar Pagamento */}
+              <TouchableOpacity
+                style={{ backgroundColor: '#10b981', borderRadius: 10, paddingVertical: 16, marginTop: 16, alignItems: 'center' }}
+                onPress={() => {
+                  setShowPixModal(false);
+                  toast.show('Pagamento PIX confirmado! Agora emita o cupom.', 'success');
+                  // Abre o modal de preview para emissão
+                  if (items.length > 0) {
+                    setShowPreviewModal(true);
+                  }
+                }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 16 }}>✅ Confirmar Pagamento Recebido</Text>
+              </TouchableOpacity>
+
+              {/* Botão Fechar */}
+              <TouchableOpacity
+                style={{ borderWidth: 1, borderColor: theme.border, borderRadius: 10, paddingVertical: 14, marginTop: 12, alignItems: 'center' }}
+                onPress={() => setShowPixModal(false)}
+              >
+                <Text style={{ color: theme.text, fontWeight: '600', fontSize: 15 }}>Fechar</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1480,7 +1658,9 @@ const styles = StyleSheet.create({
   changeBox: { flexDirection: 'row', justifyContent: 'space-between', padding: 14, borderRadius: 10, marginTop: 12 },
   changeLabel: { fontSize: 15, fontWeight: '600' },
   changeValue: { fontSize: 18, fontWeight: '700' },
-  buttonsContainer: { flexDirection: 'row', gap: 12 },
+  buttonsContainer: { flexDirection: 'row', gap: 12, flexWrap: 'wrap' },
+  pixQrBtn: { flex: 1, minWidth: '100%', borderRadius: 12, paddingVertical: 16, alignItems: 'center', marginBottom: 8 },
+  pixQrBtnText: { fontSize: 16, fontWeight: '600' },
   previewBtn: { flex: 1, borderWidth: 2, borderRadius: 12, paddingVertical: 16, alignItems: 'center' },
   previewBtnText: { fontSize: 16, fontWeight: '600' },
   emitBtn: { flex: 2, borderRadius: 12, paddingVertical: 16, alignItems: 'center' },

@@ -46,6 +46,7 @@ export default function RangeScreen() {
   const [end, setEnd] = React.useState(todayYMD()); // YYYY-MM-DD
   const [showStart, setShowStart] = React.useState(false);
   const [showEnd, setShowEnd] = React.useState(false);
+  const [typeFilter, setTypeFilter] = React.useState<'all' | 'income' | 'expense'>('all');
   const valid = ymd(start) && ymd(end) && start <= end;
 
   React.useEffect(() => {
@@ -483,6 +484,52 @@ _Gerado via Fast Cash Flow_`;
             </View>
           )}
 
+          {/* Filtro de Tipo (Entradas/Saídas) */}
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+            <TouchableOpacity
+              onPress={() => setTypeFilter('all')}
+              style={{
+                flex: 1,
+                paddingVertical: 10,
+                borderRadius: 8,
+                alignItems: 'center',
+                backgroundColor: typeFilter === 'all' ? '#6366f1' : theme.card,
+                borderWidth: 1,
+                borderColor: typeFilter === 'all' ? '#6366f1' : theme.border,
+              }}
+            >
+              <Text style={{ color: typeFilter === 'all' ? '#fff' : theme.text, fontWeight: '600', fontSize: 13 }}>📊 Todos</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setTypeFilter('income')}
+              style={{
+                flex: 1,
+                paddingVertical: 10,
+                borderRadius: 8,
+                alignItems: 'center',
+                backgroundColor: typeFilter === 'income' ? '#16A34A' : theme.card,
+                borderWidth: 1,
+                borderColor: typeFilter === 'income' ? '#16A34A' : theme.border,
+              }}
+            >
+              <Text style={{ color: typeFilter === 'income' ? '#fff' : theme.text, fontWeight: '600', fontSize: 13 }}>📈 Entradas</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setTypeFilter('expense')}
+              style={{
+                flex: 1,
+                paddingVertical: 10,
+                borderRadius: 8,
+                alignItems: 'center',
+                backgroundColor: typeFilter === 'expense' ? '#DC2626' : theme.card,
+                borderWidth: 1,
+                borderColor: typeFilter === 'expense' ? '#DC2626' : theme.border,
+              }}
+            >
+              <Text style={{ color: typeFilter === 'expense' ? '#fff' : theme.text, fontWeight: '600', fontSize: 13 }}>📉 Saídas</Text>
+            </TouchableOpacity>
+          </View>
+
           {/* SEÇÃO 2: Botões PDF e WhatsApp */}
           {Platform.OS === 'web' ? (
             <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -506,7 +553,11 @@ _Gerado via Fast Cash Flow_`;
 
           {/* Cards de Resumo */}
           {(() => {
-            const txs = (txQ.data || []);
+            let txs = (txQ.data || []);
+            // Aplicar filtro de tipo
+            if (typeFilter !== 'all') {
+              txs = txs.filter(tx => tx.type === typeFilter);
+            }
             let inc = 0, exp = 0;
             for (const tItem of txs) { if (tItem.type === 'income') inc += (tItem.amount_cents || 0); else exp += (tItem.amount_cents || 0); }
             const bal = inc - exp;
@@ -582,7 +633,11 @@ _Gerado via Fast Cash Flow_`;
           })()}
 
           {(() => {
-            const txs = (txQ.data || []);
+            let txs = (txQ.data || []);
+            // Aplicar filtro de tipo
+            if (typeFilter !== 'all') {
+              txs = txs.filter(tx => tx.type === typeFilter);
+            }
             const map = new Map<string, { income: number; expense: number }>();
             for (const tItem of txs) {
               const v = map.get(tItem.date) || { income: 0, expense: 0 };
@@ -670,7 +725,13 @@ _Gerado via Fast Cash Flow_`;
             {isWideWeb ? (
               <FlatList
                 style={{}}
-                data={txQ.data || []}
+                data={(() => {
+                  let txs = txQ.data || [];
+                  if (typeFilter !== 'all') {
+                    txs = txs.filter(tx => tx.type === typeFilter);
+                  }
+                  return txs;
+                })()}
                 keyExtractor={(item) => item.id}
                 ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
                 scrollEnabled
@@ -687,7 +748,13 @@ _Gerado via Fast Cash Flow_`;
               />
             ) : (
               <View style={{ gap: 10 }}>
-                {(txQ.data || []).map((item) => (
+                {(() => {
+                  let txs = txQ.data || [];
+                  if (typeFilter !== 'all') {
+                    txs = txs.filter(tx => tx.type === typeFilter);
+                  }
+                  return txs;
+                })().map((item) => (
                   <View key={item.id} style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#374151', borderRadius: 10, padding: 14, backgroundColor: theme.card }}>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: theme.text, fontWeight: '700', fontSize: 14 }} numberOfLines={1}>{item.date} • {item.time || ''}</Text>

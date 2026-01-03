@@ -313,6 +313,7 @@ export default function CustomDrawerContent(props: DrawerContentComponentProps) 
       icon: '📦',
       items: [
         { name: 'Encomendas', label: 'Encomendas', icon: '📋', hideForAdmin: true },
+        { name: 'PDV', label: 'PDV Visual', icon: '🛒', hideForAdmin: true },
         { name: 'CupomFiscal', label: 'Cupom Fiscal', icon: '🧾', hideForAdmin: true },
         { name: 'Importar', label: 'Importar Extrato', icon: '📄' },
       ],

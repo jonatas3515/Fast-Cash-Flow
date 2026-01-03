@@ -18,6 +18,7 @@ import {
   type CompanyProfile
 } from '../repositories/company_profile';
 import { getCurrentCompanyId } from '../lib/company';
+import { getPixConfig, updatePixConfig, type PixConfig } from '../repositories/companies';
 
 export default function SettingsScreen() {
   const { mode } = useThemeCtx();
@@ -48,11 +49,54 @@ export default function SettingsScreen() {
   const [companyAddress, setCompanyAddress] = React.useState('');
   const [savingReceiptInfo, setSavingReceiptInfo] = React.useState(false);
 
+  // Dados do PIX
+  const [pixKey, setPixKey] = React.useState('');
+  const [pixMerchantName, setPixMerchantName] = React.useState('');
+  const [pixMerchantCity, setPixMerchantCity] = React.useState('');
+  const [savingPix, setSavingPix] = React.useState(false);
+
   // Carregar perfil do negócio ao iniciar
   React.useEffect(() => {
     loadCompanyProfile();
     loadCompanyEmail();
+    loadPixConfig();
   }, []);
+
+  const loadPixConfig = async () => {
+    try {
+      const companyId = await getCurrentCompanyId();
+      if (!companyId) return;
+
+      const config = await getPixConfig(companyId);
+      if (config) {
+        if (config.pixKey) setPixKey(config.pixKey);
+        if (config.pixMerchantName) setPixMerchantName(config.pixMerchantName);
+        if (config.pixMerchantCity) setPixMerchantCity(config.pixMerchantCity);
+      }
+    } catch (error) {
+      console.error('Erro ao carregar config PIX:', error);
+    }
+  };
+
+  const savePixConfig = async () => {
+    try {
+      setSavingPix(true);
+      const companyId = await getCurrentCompanyId();
+      if (!companyId) throw new Error('Empresa não identificada');
+
+      await updatePixConfig(companyId, {
+        pixKey: pixKey || null,
+        pixMerchantName: pixMerchantName || null,
+        pixMerchantCity: pixMerchantCity || null,
+      });
+
+      toast.show('Configuração PIX salva com sucesso!', 'success');
+    } catch (error: any) {
+      toast.show('Erro ao salvar PIX: ' + error.message, 'error');
+    } finally {
+      setSavingPix(false);
+    }
+  };
 
   const loadCompanyEmail = async () => {
     try {
@@ -321,6 +365,68 @@ export default function SettingsScreen() {
         >
           <Text style={styles.prettyBtnText}>{savingReceiptInfo ? 'Salvando...' : 'Salvar Dados do Cupom'}</Text>
         </TouchableOpacity>
+      </View>
+
+      {/* Configuração PIX */}
+      <View style={{ gap: 8, marginTop: 20, padding: 16, backgroundColor: theme.card, borderRadius: 12 }}>
+        <Text style={{ color: theme.text, fontWeight: '700', fontSize: 16, marginBottom: 4 }}>📱 Configuração PIX</Text>
+        <Text style={{ color: '#888', fontSize: 12, marginBottom: 8 }}>
+          Configure os dados para gerar QR Code de pagamento PIX no checkout.
+        </Text>
+
+        <View style={{ gap: 4 }}>
+          <Text style={{ color: theme.text, fontSize: 12, fontWeight: '600' }}>Chave PIX</Text>
+          <TextInput
+            value={pixKey}
+            onChangeText={setPixKey}
+            placeholder="CPF, CNPJ, email, telefone ou chave aleatória"
+            placeholderTextColor="#999"
+            autoCapitalize="none"
+            style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
+          />
+        </View>
+
+        <View style={{ gap: 4, marginTop: 8 }}>
+          <Text style={{ color: theme.text, fontSize: 12, fontWeight: '600' }}>Nome do Beneficiário (máx 25 chars)</Text>
+          <TextInput
+            value={pixMerchantName}
+            onChangeText={(text) => setPixMerchantName(text.slice(0, 25))}
+            placeholder="Ex: LANCHONETE CENTRAL"
+            placeholderTextColor="#999"
+            maxLength={25}
+            autoCapitalize="characters"
+            style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
+          />
+          <Text style={{ color: '#666', fontSize: 10 }}>{pixMerchantName.length}/25 caracteres</Text>
+        </View>
+
+        <View style={{ gap: 4, marginTop: 8 }}>
+          <Text style={{ color: theme.text, fontSize: 12, fontWeight: '600' }}>Cidade (máx 15 chars)</Text>
+          <TextInput
+            value={pixMerchantCity}
+            onChangeText={(text) => setPixMerchantCity(text.slice(0, 15))}
+            placeholder="Ex: SAO PAULO"
+            placeholderTextColor="#999"
+            maxLength={15}
+            autoCapitalize="characters"
+            style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
+          />
+          <Text style={{ color: '#666', fontSize: 10 }}>{pixMerchantCity.length}/15 caracteres</Text>
+        </View>
+
+        <TouchableOpacity
+          disabled={savingPix}
+          onPress={savePixConfig}
+          style={[styles.prettyBtn, styles.prettyBtnWide, { backgroundColor: '#06b6d4', alignSelf: 'flex-start', marginTop: 12 }]}
+        >
+          <Text style={styles.prettyBtnText}>{savingPix ? 'Salvando...' : 'Salvar Configuração PIX'}</Text>
+        </TouchableOpacity>
+
+        {(!pixKey || !pixMerchantName || !pixMerchantCity) && (
+          <Text style={{ color: '#f59e0b', fontSize: 11, marginTop: 8 }}>
+            ⚠️ Preencha todos os campos para habilitar o QR Code PIX no checkout.
+          </Text>
+        )}
       </View>
 
       <View style={{ gap: 6, marginTop: 12 }}>

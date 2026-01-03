@@ -79,9 +79,10 @@ export default function Achievements({ compact = false, showUnlockedOnly = false
         .eq('company_id', companyId)
         .is('deleted_at', null);
 
+      // financial_goals não tem coluna 'achieved' - apenas contar metas existentes
       const { data: goals } = await supabase
-        .from('goals')
-        .select('id, achieved')
+        .from('financial_goals')
+        .select('id')
         .eq('company_id', companyId);
 
       const { data: categories } = await supabase
@@ -90,7 +91,8 @@ export default function Achievements({ compact = false, showUnlockedOnly = false
         .eq('company_id', companyId);
 
       const transactionCount = transactions?.length || 0;
-      const goalsAchieved = goals?.filter(g => g.achieved).length || 0;
+      // Considerar metas como "alcançadas" baseado no número de metas criadas
+      const goalsAchieved = goals?.length || 0;
       const categoryCount = categories?.length || 0;
 
       // Gerar conquistas baseadas nas estatísticas
@@ -116,17 +118,17 @@ export default function Achievements({ compact = false, showUnlockedOnly = false
       { key: 'first_goal', name: 'Primeira Meta', description: 'Atinja sua primeira meta', icon: '🎯', category: 'beginner' as const, target: 1, current: Math.min(goals, 1), reward_type: 'badge_only', reward_value: 0 },
       { key: 'ten_transactions', name: '10 Lançamentos', description: 'Registre 10 lançamentos', icon: '📝', category: 'beginner' as const, target: 10, current: Math.min(transactions, 10), reward_type: 'badge_only', reward_value: 0 },
       { key: 'first_category', name: 'Organizador', description: 'Crie sua primeira categoria', icon: '🏷️', category: 'beginner' as const, target: 1, current: Math.min(categories, 1), reward_type: 'badge_only', reward_value: 0 },
-      
+
       // Intermediário
       { key: 'hundred_transactions', name: 'Centenário', description: 'Registre 100 lançamentos', icon: '💯', category: 'intermediate' as const, target: 100, current: Math.min(transactions, 100), reward_type: 'trial_days', reward_value: 3 },
       { key: 'three_goals', name: 'Focado', description: 'Atinja 3 metas financeiras', icon: '🎯', category: 'intermediate' as const, target: 3, current: Math.min(goals, 3), reward_type: 'trial_days', reward_value: 5 },
       { key: 'five_categories', name: 'Super Organizado', description: 'Crie 5 categorias', icon: '🏷️', category: 'intermediate' as const, target: 5, current: Math.min(categories, 5), reward_type: 'badge_only', reward_value: 0 },
-      
+
       // Avançado
       { key: 'five_hundred_transactions', name: 'Veterano', description: 'Registre 500 lançamentos', icon: '⭐', category: 'advanced' as const, target: 500, current: Math.min(transactions, 500), reward_type: 'discount_percent', reward_value: 10 },
       { key: 'thousand_transactions', name: 'Mestre Financeiro', description: 'Registre 1000 lançamentos', icon: '👑', category: 'advanced' as const, target: 1000, current: Math.min(transactions, 1000), reward_type: 'discount_percent', reward_value: 20 },
       { key: 'ten_goals', name: 'Conquistador', description: 'Atinja 10 metas', icon: '🏆', category: 'advanced' as const, target: 10, current: Math.min(goals, 10), reward_type: 'discount_percent', reward_value: 15 },
-      
+
       // Mestre
       { key: 'five_thousand_transactions', name: 'Elite', description: 'Registre 5000 lançamentos', icon: '💫', category: 'master' as const, target: 5000, current: Math.min(transactions, 5000), reward_type: 'discount_percent', reward_value: 30 },
     ];
@@ -173,15 +175,15 @@ export default function Achievements({ compact = false, showUnlockedOnly = false
   const filteredAchievements = React.useMemo(() => {
     if (!achievements) return [];
     let filtered = achievements;
-    
+
     if (showUnlockedOnly) {
       filtered = filtered.filter(a => a.is_unlocked);
     }
-    
+
     if (selectedCategory) {
       filtered = filtered.filter(a => a.category === selectedCategory);
     }
-    
+
     return filtered;
   }, [achievements, showUnlockedOnly, selectedCategory]);
 
@@ -195,8 +197,8 @@ export default function Achievements({ compact = false, showUnlockedOnly = false
         key={achievement.id}
         style={[
           styles.achievementCard,
-          { 
-            backgroundColor: colors.cardBg, 
+          {
+            backgroundColor: colors.cardBg,
             borderColor: isLocked ? colors.border : categoryConfig.color,
             opacity: isLocked ? 0.7 : 1,
           }
@@ -210,7 +212,7 @@ export default function Achievements({ compact = false, showUnlockedOnly = false
             {isLocked ? '🔒' : achievement.icon}
           </Text>
         </View>
-        
+
         <View style={styles.achievementContent}>
           <Text style={[styles.achievementName, { color: colors.text }]}>
             {achievement.name}
@@ -218,7 +220,7 @@ export default function Achievements({ compact = false, showUnlockedOnly = false
           <Text style={[styles.achievementDesc, { color: colors.textSecondary }]} numberOfLines={1}>
             {achievement.description}
           </Text>
-          
+
           {!isLocked ? (
             <View style={styles.unlockedBadge}>
               <Text style={[styles.unlockedText, { color: categoryConfig.color }]}>
@@ -228,14 +230,14 @@ export default function Achievements({ compact = false, showUnlockedOnly = false
           ) : (
             <View style={styles.progressContainer}>
               <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
-                <View 
+                <View
                   style={[
-                    styles.progressFill, 
-                    { 
+                    styles.progressFill,
+                    {
                       backgroundColor: categoryConfig.color,
                       width: `${achievement.progress_percent}%`
                     }
-                  ]} 
+                  ]}
                 />
               </View>
               <Text style={[styles.progressText, { color: colors.textSecondary }]}>
@@ -257,7 +259,7 @@ export default function Achievements({ compact = false, showUnlockedOnly = false
   // Versão compacta
   if (compact) {
     const recentUnlocked = achievements?.filter(a => a.is_unlocked).slice(0, 3) || [];
-    
+
     return (
       <TouchableOpacity
         style={[styles.compactContainer, { backgroundColor: colors.cardBg, borderColor: colors.border }]}
@@ -272,7 +274,7 @@ export default function Achievements({ compact = false, showUnlockedOnly = false
             </Text>
           </View>
         </View>
-        
+
         <View style={styles.compactBadges}>
           {recentUnlocked.map((a, i) => (
             <View key={a.id} style={styles.compactBadge}>
@@ -316,14 +318,14 @@ export default function Achievements({ compact = false, showUnlockedOnly = false
             </Text>
           </View>
           <View style={[styles.overallBar, { backgroundColor: colors.border }]}>
-            <View 
+            <View
               style={[
-                styles.overallFill, 
-                { 
+                styles.overallFill,
+                {
                   backgroundColor: colors.success,
                   width: `${(stats.unlocked / stats.total) * 100}%`
                 }
-              ]} 
+              ]}
             />
           </View>
         </View>
@@ -334,7 +336,7 @@ export default function Achievements({ compact = false, showUnlockedOnly = false
             <TouchableOpacity
               style={[
                 styles.categoryChip,
-                { 
+                {
                   backgroundColor: !selectedCategory ? colors.primary : colors.cardBg,
                   borderColor: !selectedCategory ? colors.primary : colors.border,
                 }
@@ -353,7 +355,7 @@ export default function Achievements({ compact = false, showUnlockedOnly = false
                 key={key}
                 style={[
                   styles.categoryChip,
-                  { 
+                  {
                     backgroundColor: selectedCategory === key ? config.color : colors.cardBg,
                     borderColor: selectedCategory === key ? config.color : colors.border,
                   }
@@ -401,10 +403,10 @@ export default function Achievements({ compact = false, showUnlockedOnly = false
 
       {/* Celebração de Nova Conquista */}
       {newUnlocked && (
-        <Animated.View 
+        <Animated.View
           style={[
             styles.celebration,
-            { 
+            {
               opacity: celebrationAnim,
               transform: [{ scale: celebrationAnim }]
             }

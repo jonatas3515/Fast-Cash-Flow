@@ -57,11 +57,15 @@ function calculateSummary(items: (Payable | Receivable)[], dueDateField: 'due_da
 
     for (const item of items) {
         const dueDate = (item as any)[dueDateField];
-        const amount = (item as any).amount_cents || (item as any).remaining_cents || 0;
         const status = (item as any).status;
 
         // Skip if already paid/received
         if (status === 'paid' || status === 'received') continue;
+
+        // Calculate remaining amount (works for both payables and receivables)
+        const totalCents = (item as any).total_cents || 0;
+        const paidCents = (item as any).paid_cents || (item as any).received_cents || 0;
+        const amount = totalCents - paidCents;
 
         if (dueDate < today) {
             overdue += amount;

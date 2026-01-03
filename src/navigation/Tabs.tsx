@@ -36,6 +36,7 @@ import ChartsScreen from '../screens/ChartsScreen';
 import ReceivablesScreen from '../screens/ReceivablesScreen';
 import PayablesScreen from '../screens/PayablesScreen';
 import AutomationRulesScreen from '../screens/AutomationRulesScreen';
+import POSScreen from '../screens/POSScreen';
 import CustomDrawerContent from './CustomDrawerContent';
 import { colors } from '../theme';
 import { View, Text, Image, TouchableOpacity, Platform, useWindowDimensions } from 'react-native';
@@ -228,6 +229,13 @@ export default function Tabs() {
         component={OrdersScreen}
         options={{
           header: () => <CustomHeader title="Encomendas" />,
+        }}
+      />
+      <Drawer.Screen
+        name="PDV"
+        component={POSScreen}
+        options={{
+          header: () => <CustomHeader title="PDV Visual" />,
         }}
       />
       <Drawer.Screen

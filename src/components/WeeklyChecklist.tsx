@@ -95,14 +95,80 @@ export default function WeeklyChecklist({ navigation, compact = false }: WeeklyC
         return;
       }
 
-      // Carregar progresso salvo
+      // Carregar progresso salvo (manual)
       const savedProgress = await storage.getItem(`weekly_progress_${companyId}`);
-      const completedIds = savedProgress ? JSON.parse(savedProgress) : [];
+      const manualCompletedIds = savedProgress ? JSON.parse(savedProgress) : [];
+
+      // AUTO-DETECTAR passos completados baseado em dados reais
+      const autoCompleted: string[] = [];
+
+      try {
+        // Importar supabase dinamicamente para evitar dependência circular
+        const { supabase } = await import('../lib/supabase');
+
+        const [
+          { data: company },
+          { count: transactionCount },
+          { count: productCount },
+          { count: categoryCount },
+          { count: goalCount },
+          { count: debtCount },
+          { count: recurringCount },
+        ] = await Promise.all([
+          supabase.from('companies').select('name, logo_url').eq('id', companyId).single(),
+          supabase.from('transactions').select('*', { count: 'exact', head: true }).eq('company_id', companyId).is('deleted_at', null),
+          supabase.from('products').select('*', { count: 'exact', head: true }).eq('company_id', companyId),
+          supabase.from('categories').select('*', { count: 'exact', head: true }).eq('company_id', companyId),
+          supabase.from('financial_goals').select('*', { count: 'exact', head: true }).eq('company_id', companyId),
+          supabase.from('debts').select('*', { count: 'exact', head: true }).eq('company_id', companyId),
+          supabase.from('recurring_expenses').select('*', { count: 'exact', head: true }).eq('company_id', companyId),
+        ]);
+
+        // Dia 1: Configurar empresa (nome preenchido)
+        if (company?.name && company.name.trim().length > 0) autoCompleted.push('w1_setup');
+        // Dia 1: Primeiro lançamento
+        if ((transactionCount ?? 0) >= 1) autoCompleted.push('w1_first_tx');
+
+        // Dia 2: Cadastrar produtos
+        if ((productCount ?? 0) >= 1) autoCompleted.push('w2_products');
+        // Dia 2: Usar categorias (tem categorias ou usou em transações)
+        if ((categoryCount ?? 0) >= 1 || (transactionCount ?? 0) >= 3) autoCompleted.push('w2_categories');
+
+        // Dia 3: Definir meta mensal
+        if ((goalCount ?? 0) >= 1) autoCompleted.push('w3_goal');
+        // Dia 3: Registrar dívidas
+        if ((debtCount ?? 0) >= 1) autoCompleted.push('w3_debts');
+
+        // Dia 4: Despesas recorrentes
+        if ((recurringCount ?? 0) >= 1) autoCompleted.push('w4_recurring');
+        // Dia 4: Verificar saldo (se tem transações suficientes)
+        if ((transactionCount ?? 0) >= 5) autoCompleted.push('w4_check_balance');
+
+        // Dia 5: Gerar relatório (se tem transações)
+        if ((transactionCount ?? 0) >= 5) autoCompleted.push('w5_report');
+        // Dia 5: Checar saúde financeira (se tem metas)
+        if ((goalCount ?? 0) >= 1) autoCompleted.push('w5_health');
+
+        // Dia 6: Explorar encomendas (considerar visitado se tem produtos)
+        if ((productCount ?? 0) >= 2) autoCompleted.push('w6_orders');
+        // Dia 6: Ver diagnóstico (se tem dados suficientes)
+        if ((transactionCount ?? 0) >= 10) autoCompleted.push('w6_diagnostico');
+
+        // Dia 7: Relatório para contador (se tem dados)
+        if ((transactionCount ?? 0) >= 10) autoCompleted.push('w7_accountant');
+        // Dia 7: Verificar sincronização (sempre marcado se empresa existe)
+        if (company?.name) autoCompleted.push('w7_backup');
+      } catch (dbError) {
+        console.log('Erro ao verificar dados para auto-complete:', dbError);
+      }
+
+      // Combinar manual + auto-detectado
+      const allCompletedIds = [...new Set([...manualCompletedIds, ...autoCompleted])];
 
       // Montar steps com status de completado
       const stepsWithStatus = WEEKLY_STEPS_TEMPLATE.map(step => ({
         ...step,
-        completed: completedIds.includes(step.id),
+        completed: allCompletedIds.includes(step.id),
       }));
 
       setSteps(stepsWithStatus);

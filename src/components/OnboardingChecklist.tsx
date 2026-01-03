@@ -57,16 +57,7 @@ export default function OnboardingChecklist({
       const companyId = await getCurrentCompanyId();
       if (!companyId) return null;
 
-      // Buscar progresso existente
-      const { data: existing } = await supabase
-        .from('onboarding_progress')
-        .select('*')
-        .eq('company_id', companyId)
-        .single();
-
-      if (existing) return existing;
-
-      // Se não existe, calcular baseado nos dados
+      // SEMPRE calcular baseado nos dados reais (não usar cache da tabela)
       const [
         { count: transactionCount },
         { count: categoryCount },
@@ -81,26 +72,24 @@ export default function OnboardingChecklist({
         supabase.from('companies').select('name, logo_url').eq('id', companyId).single(),
       ]);
 
-      // Verificar se perfil está completo (tem nome e logo)
-      const profile_completed = !!(companyData?.name && companyData?.logo_url);
+      // Verificar se perfil está completo (tem nome é suficiente)
+      const profile_completed = !!(companyData?.name && companyData.name.trim().length > 0);
       const first_transactions = (transactionCount ?? 0) >= 5;
       const categories_configured = (categoryCount ?? 0) >= 3;
       const first_goal_created = (goalCount ?? 0) >= 1;
       const recurring_expense_added = (recurringCount ?? 0) >= 1;
 
-      // Considerar relatório gerado se tem pelo menos 5 transações (dados suficientes para gráficos)
-      // Ou verificar localStorage/sessionStorage para flag de relatório acessado
+      // Considerar relatório gerado se tem pelo menos 5 transações
       let first_report_generated = false;
       if (Platform.OS === 'web') {
         try {
           const reportFlag = window.localStorage.getItem(`report_generated_${companyId}`);
-          first_report_generated = reportFlag === 'true' || (transactionCount ?? 0) >= 10;
+          first_report_generated = reportFlag === 'true' || (transactionCount ?? 0) >= 5;
         } catch {
-          first_report_generated = (transactionCount ?? 0) >= 10;
+          first_report_generated = (transactionCount ?? 0) >= 5;
         }
       } else {
-        // No mobile, considerar gerado se tem dados suficientes
-        first_report_generated = (transactionCount ?? 0) >= 10;
+        first_report_generated = (transactionCount ?? 0) >= 5;
       }
 
       const completed_steps = [
@@ -153,7 +142,7 @@ export default function OnboardingChecklist({
       description: 'Personalize com pelo menos 3 categorias',
       icon: '🏷️',
       completed: progress?.categories_configured ?? false,
-      action: () => navigation.navigate('Configuração'),
+      action: () => navigation.navigate('Categorias'),
     },
     {
       key: 'goal',

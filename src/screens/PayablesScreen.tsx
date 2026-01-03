@@ -36,6 +36,7 @@ const PAYABLE_TYPES: { value: PayableType; label: string }[] = [
 // Filtros ajustados para dívidas parceladas
 const STATUS_FILTERS = [
   { key: 'all', label: 'Todas' },
+  { key: 'pendentes_vencidas', label: '📋 A Pagar + Vencidas' },
   { key: 'pending', label: '🟡 A Pagar' },      // Parcelas do próximo mês (amarelo)
   { key: 'overdue', label: '🔴 Vencidas' },     // Parcelas vencidas (vermelho)
   { key: 'paid', label: '✅ Quitadas' },        // Dívidas 100% pagas
@@ -46,7 +47,7 @@ export default function PayablesScreen() {
   const qc = useQueryClient();
   const toast = useToast();
 
-  const [filter, setFilter] = useState('all');
+  const [filter, setFilter] = useState('pendentes_vencidas');
   const [showForm, setShowForm] = useState(false);
   const [supplierName, setSupplierName] = useState('');
   const [category, setCategory] = useState('');
@@ -411,6 +412,9 @@ export default function PayablesScreen() {
     const today = todayYMD();
 
     switch (filter) {
+      case 'pendentes_vencidas':
+        data = data.filter(p => p.status === 'overdue' || p.status === 'pending' || p.status === 'partial');
+        break;
       case 'overdue':
         data = data.filter(p => p.status === 'overdue');
         break;
@@ -469,6 +473,8 @@ export default function PayablesScreen() {
       }
 
       switch (filter) {
+        case 'pendentes_vencidas':
+          return (hasOverdue || hasPending) && !isFullyPaid;
         case 'overdue':
           return hasOverdue && !isFullyPaid;
         case 'pending':
