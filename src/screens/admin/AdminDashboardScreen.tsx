@@ -37,7 +37,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
 
   // Query para estatísticas gerais e KPIs
   // NOTA: Todas as queries excluem a empresa do sistema (FastSavorys) das métricas
-  const { data: stats, isLoading, refetch, isRefetching } = useQuery({
+  const { data: stats, isLoading, refetch, isRefetching, error } = useQuery({
     queryKey: ['admin-dashboard-stats'],
     queryFn: async () => {
       // Total de empresas ativas (não deletadas, excluindo empresa do sistema)
@@ -101,48 +101,61 @@ export default function AdminDashboardScreen({ navigation }: any) {
         .select('*', { count: 'exact', head: true })
         .eq('status', 'approved');
 
-      // Calcular KPIs
-      const totalTrialAndPaid = (trialCompanies ?? 0) + (paidCompanies ?? 0) + (expiredCompanies ?? 0);
+      // Calcular KPIs com verificações de segurança para evitar NaN
+      const safeCount = (val: number | null | undefined) => val ?? 0;
+
+      const vActive = safeCount(activeCompanies);
+      const vTrial = safeCount(trialCompanies);
+      const vPaid = safeCount(paidCompanies);
+      const vExpired = safeCount(expiredCompanies);
+      const vTotalApproved = safeCount(totalApproved);
+      const vDeleted = safeCount(deletedCompanies);
+      const vPending = safeCount(pendingRequests);
+      const vApprovedThisMonth = safeCount(approvedThisMonth);
+
+      const totalTrialAndPaid = vTrial + vPaid + vExpired;
+
       const conversionRate = totalTrialAndPaid > 0
-        ? ((paidCompanies ?? 0) / totalTrialAndPaid) * 100
+        ? (vPaid / totalTrialAndPaid) * 100
         : 0;
 
       // Churn Rate (empresas expiradas/bloqueadas do total)
       const churnRate = totalTrialAndPaid > 0
-        ? ((expiredCompanies ?? 0) / totalTrialAndPaid) * 100
+        ? (vExpired / totalTrialAndPaid) * 100
         : 0;
 
       // MRR (Monthly Recurring Revenue) - assumindo R$ 9,99/mês
       const monthlyPrice = 9.99;
-      const mrr = (paidCompanies ?? 0) * monthlyPrice;
+      const mrr = vPaid * monthlyPrice;
 
       // ARPU (Average Revenue Per User)
-      const arpu = (activeCompanies ?? 0) > 0 ? mrr / (activeCompanies ?? 1) : 0;
+      const arpu = vActive > 0 ? mrr / vActive : 0;
 
       // LTV estimado (assumindo 12 meses de retenção média)
       const avgRetentionMonths = 12;
       const ltv = monthlyPrice * avgRetentionMonths;
 
       // Retenção (empresas ativas / total que já passou por trial)
-      const retentionRate = (totalApproved ?? 0) > 0
-        ? ((paidCompanies ?? 0) / (totalApproved ?? 1)) * 100
+      // Ajuste: Evitar divisão por zero caso totalApproved seja 0
+      const retentionRate = vTotalApproved > 0
+        ? (vPaid / vTotalApproved) * 100
         : 0;
 
       return {
-        activeCompanies: activeCompanies ?? 0,
-        deletedCompanies: deletedCompanies ?? 0,
-        pendingRequests: pendingRequests ?? 0,
-        approvedThisMonth: approvedThisMonth ?? 0,
-        trialCompanies: trialCompanies ?? 0,
-        paidCompanies: paidCompanies ?? 0,
-        expiredCompanies: expiredCompanies ?? 0,
+        activeCompanies: vActive,
+        deletedCompanies: vDeleted,
+        pendingRequests: vPending,
+        approvedThisMonth: vApprovedThisMonth,
+        trialCompanies: vTrial,
+        paidCompanies: vPaid,
+        expiredCompanies: vExpired,
         // KPIs
-        conversionRate,
-        churnRate,
-        retentionRate,
-        mrr,
-        arpu,
-        ltv,
+        conversionRate: isNaN(conversionRate) ? 0 : conversionRate,
+        churnRate: isNaN(churnRate) ? 0 : churnRate,
+        retentionRate: isNaN(retentionRate) ? 0 : retentionRate,
+        mrr: isNaN(mrr) ? 0 : mrr,
+        arpu: isNaN(arpu) ? 0 : arpu,
+        ltv: isNaN(ltv) ? 0 : ltv,
       };
     },
     refetchInterval: 30000, // Atualiza a cada 30 segundos
@@ -315,6 +328,31 @@ export default function AdminDashboardScreen({ navigation }: any) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
         <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Carregando estatísticas...</Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
+        <Text style={{ fontSize: 40, marginBottom: 16 }}>⚠️</Text>
+        <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600', marginBottom: 8 }}>
+          Não foi possível carregar os dados
+        </Text>
+        <Text style={{ color: colors.textSecondary, fontSize: 13, marginBottom: 20, textAlign: 'center', paddingHorizontal: 40 }}>
+          Ocorreu um erro ao buscar as estatísticas. Verifique sua conexão e tente novamente.
+        </Text>
+        <TouchableOpacity
+          onPress={() => refetch()}
+          style={{
+            backgroundColor: '#3B82F6',
+            paddingHorizontal: 24,
+            paddingVertical: 12,
+            borderRadius: 8,
+          }}
+        >
+          <Text style={{ color: '#FFF', fontWeight: '700' }}>Tentar novamente</Text>
+        </TouchableOpacity>
       </View>
     );
   }

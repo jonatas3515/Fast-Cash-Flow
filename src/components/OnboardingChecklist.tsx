@@ -150,7 +150,7 @@ export default function OnboardingChecklist({
       description: 'Estabeleça seu primeiro objetivo',
       icon: '🎯',
       completed: progress?.first_goal_created ?? false,
-      action: () => navigation.navigate('Goals'),
+      action: () => navigation.navigate('Histórico de Metas'),
     },
     {
       key: 'recurring',
@@ -158,7 +158,7 @@ export default function OnboardingChecklist({
       description: 'Automatize seus gastos fixos',
       icon: '🔄',
       completed: progress?.recurring_expense_added ?? false,
-      action: () => navigation.navigate('Recurring'),
+      action: () => navigation.navigate('Recorrentes'),
     },
     {
       key: 'report',
@@ -166,7 +166,7 @@ export default function OnboardingChecklist({
       description: 'Visualize seus dados em gráficos',
       icon: '📊',
       completed: progress?.first_report_generated ?? false,
-      action: () => navigation.navigate('Reports'),
+      action: () => navigation.navigate('Relatórios'),
     },
   ];
 

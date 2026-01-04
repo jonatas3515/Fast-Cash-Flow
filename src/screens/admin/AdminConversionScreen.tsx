@@ -53,74 +53,88 @@ export default function AdminConversionScreen({ navigation }: any) {
   };
 
   // Query para métricas de conversão
-  const { data: metrics, isLoading, refetch, isRefetching } = useQuery({
+  const { data: metrics, isLoading, refetch, isRefetching, error } = useQuery({
     queryKey: ['admin-conversion-metrics'],
     queryFn: async () => {
-      // Total de empresas que já passaram por trial
-      const { count: totalTrials } = await supabase
-        .from('companies')
-        .select('*', { count: 'exact', head: true })
-        .is('deleted_at', null);
+      try {
+        // Total de empresas que já passaram por trial
+        const { count: totalTrials } = await supabase
+          .from('companies')
+          .select('*', { count: 'exact', head: true })
+          .is('deleted_at', null);
 
-      // Empresas em trial ativo
-      const { count: activeTrials } = await supabase
-        .from('companies')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'trial')
-        .is('deleted_at', null);
+        // Empresas em trial ativo
+        const { count: activeTrials } = await supabase
+          .from('companies')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'trial')
+          .is('deleted_at', null);
 
-      // Empresas convertidas (status active)
-      const { count: convertedTrials } = await supabase
-        .from('companies')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'active')
-        .is('deleted_at', null);
+        // Empresas convertidas (status active)
+        const { count: convertedTrials } = await supabase
+          .from('companies')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'active')
+          .is('deleted_at', null);
 
-      // Empresas com trial expirado
-      const { count: expiredTrials } = await supabase
-        .from('companies')
-        .select('*', { count: 'exact', head: true })
-        .in('status', ['expired', 'blocked'])
-        .is('deleted_at', null);
+        // Empresas com trial expirado
+        const { count: expiredTrials } = await supabase
+          .from('companies')
+          .select('*', { count: 'exact', head: true })
+          .in('status', ['expired', 'blocked'])
+          .is('deleted_at', null);
 
-      // Empresas com trial expirando em 5 dias
-      const fiveDaysFromNow = new Date();
-      fiveDaysFromNow.setDate(fiveDaysFromNow.getDate() + 5);
-      
-      const { count: expiringIn5Days } = await supabase
-        .from('companies')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'trial')
-        .is('deleted_at', null)
-        .lte('trial_end', fiveDaysFromNow.toISOString())
-        .gte('trial_end', new Date().toISOString());
+        // Empresas com trial expirando em 5 dias
+        const fiveDaysFromNow = new Date();
+        fiveDaysFromNow.setDate(fiveDaysFromNow.getDate() + 5);
 
-      // Calcular taxa de conversão
-      const total = (totalTrials ?? 0);
-      const converted = (convertedTrials ?? 0);
-      const conversionRate = total > 0 ? (converted / total) * 100 : 0;
+        const { count: expiringIn5Days } = await supabase
+          .from('companies')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'trial')
+          .is('deleted_at', null)
+          .lte('trial_end', fiveDaysFromNow.toISOString())
+          .gte('trial_end', new Date().toISOString());
 
-      // Buscar estatísticas de onboarding
-      const { data: onboardingData } = await supabase
-        .from('onboarding_progress')
-        .select('completion_percent');
+        // Calcular taxa de conversão
+        const total = (totalTrials ?? 0);
+        const converted = (convertedTrials ?? 0);
+        const conversionRate = total > 0 ? (converted / total) * 100 : 0;
 
-      let onboardingCompletionRate = 0;
-      if (onboardingData && onboardingData.length > 0) {
-        const totalPercent = onboardingData.reduce((sum, item) => sum + (item.completion_percent || 0), 0);
-        onboardingCompletionRate = totalPercent / onboardingData.length;
+        // Buscar estatísticas de onboarding
+        const { data: onboardingData } = await supabase
+          .from('onboarding_progress')
+          .select('completion_percent');
+
+        let onboardingCompletionRate = 0;
+        if (onboardingData && onboardingData.length > 0) {
+          const totalPercent = onboardingData.reduce((sum, item) => sum + (item.completion_percent || 0), 0);
+          onboardingCompletionRate = totalPercent / onboardingData.length;
+        }
+
+        return {
+          totalTrials: totalTrials ?? 0,
+          activeTrials: activeTrials ?? 0,
+          convertedTrials: convertedTrials ?? 0,
+          expiredTrials: expiredTrials ?? 0,
+          conversionRate,
+          avgDaysToConvert: 15, // Placeholder - calcular baseado em dados reais
+          onboardingCompletionRate,
+          trialExpiringIn5Days: expiringIn5Days ?? 0,
+        } as ConversionMetrics;
+      } catch (error) {
+        console.error('Erro ao buscar métricas de conversão:', error);
+        return {
+          totalTrials: 0,
+          activeTrials: 0,
+          convertedTrials: 0,
+          expiredTrials: 0,
+          conversionRate: 0,
+          avgDaysToConvert: 15,
+          onboardingCompletionRate: 0,
+          trialExpiringIn5Days: 0,
+        } as ConversionMetrics;
       }
-
-      return {
-        totalTrials: totalTrials ?? 0,
-        activeTrials: activeTrials ?? 0,
-        convertedTrials: convertedTrials ?? 0,
-        expiredTrials: expiredTrials ?? 0,
-        conversionRate,
-        avgDaysToConvert: 15, // Placeholder - calcular baseado em dados reais
-        onboardingCompletionRate,
-        trialExpiringIn5Days: expiringIn5Days ?? 0,
-      } as ConversionMetrics;
     },
     refetchInterval: 60000,
   });
@@ -129,27 +143,37 @@ export default function AdminConversionScreen({ navigation }: any) {
   const { data: onboardingStats } = useQuery({
     queryKey: ['admin-onboarding-stats'],
     queryFn: async () => {
-      const { data } = await supabase
-        .from('onboarding_progress')
-        .select('completion_percent, completed_at');
+      try {
+        const { data, error } = await supabase
+          .from('onboarding_progress')
+          .select('completion_percent, completed_at');
 
-      if (!data) return null;
+        if (error) {
+          console.warn('Tabela onboarding_progress não disponível:', error.message);
+          return null;
+        }
 
-      const total = data.length;
-      const completed = data.filter(d => d.completed_at).length;
-      const inProgress = data.filter(d => !d.completed_at && (d.completion_percent || 0) > 0).length;
-      const notStarted = data.filter(d => (d.completion_percent || 0) === 0).length;
-      const avgCompletion = total > 0 
-        ? data.reduce((sum, d) => sum + (d.completion_percent || 0), 0) / total 
-        : 0;
+        if (!data || data.length === 0) return null;
 
-      return {
-        total,
-        completed,
-        inProgress,
-        notStarted,
-        avgCompletion,
-      } as OnboardingStats;
+        const total = data.length;
+        const completed = data.filter(d => d.completed_at).length;
+        const inProgress = data.filter(d => !d.completed_at && (d.completion_percent || 0) > 0).length;
+        const notStarted = data.filter(d => (d.completion_percent || 0) === 0).length;
+        const avgCompletion = total > 0
+          ? data.reduce((sum, d) => sum + (d.completion_percent || 0), 0) / total
+          : 0;
+
+        return {
+          total,
+          completed,
+          inProgress,
+          notStarted,
+          avgCompletion,
+        } as OnboardingStats;
+      } catch (error) {
+        console.error('Erro ao buscar estatísticas de onboarding:', error);
+        return null;
+      }
     },
   });
 
@@ -197,7 +221,7 @@ export default function AdminConversionScreen({ navigation }: any) {
     return (
       <View style={[
         styles.metricCard,
-        { 
+        {
           backgroundColor: bgColor,
           borderColor: isDark ? `${color}40` : 'transparent',
           borderWidth: isDark ? 1 : 0,
@@ -223,7 +247,7 @@ export default function AdminConversionScreen({ navigation }: any) {
     const trialEnd = new Date(company.trial_end);
     const today = new Date();
     const daysLeft = Math.ceil((trialEnd.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-    
+
     const urgencyColor = daysLeft <= 2 ? '#EF4444' : daysLeft <= 5 ? '#F59E0B' : '#3B82F6';
 
     return (
@@ -262,6 +286,31 @@ export default function AdminConversionScreen({ navigation }: any) {
         <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
           Carregando métricas...
         </Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
+        <Text style={{ fontSize: 40, marginBottom: 16 }}>⚠️</Text>
+        <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600', marginBottom: 8 }}>
+          Não foi possível carregar os dados
+        </Text>
+        <Text style={{ color: colors.textSecondary, fontSize: 13, marginBottom: 20, textAlign: 'center', paddingHorizontal: 40 }}>
+          Ocorreu um erro ao buscar as métricas. Verifique sua conexão e tente novamente.
+        </Text>
+        <TouchableOpacity
+          onPress={() => refetch()}
+          style={{
+            backgroundColor: '#3B82F6',
+            paddingHorizontal: 24,
+            paddingVertical: 12,
+            borderRadius: 8,
+          }}
+        >
+          <Text style={{ color: '#FFF', fontWeight: '700' }}>Tentar novamente</Text>
+        </TouchableOpacity>
       </View>
     );
   }

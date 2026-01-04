@@ -37,7 +37,7 @@ export default function AdminAnalyticsScreen({ navigation }: any) {
   const isDark = mode === 'dark';
   const isWeb = Platform.OS === 'web';
   const isWideScreen = width >= 768;
-  
+
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'saudavel' | 'morno' | 'risco'>('all');
 
@@ -53,7 +53,7 @@ export default function AdminAnalyticsScreen({ navigation }: any) {
   };
 
   // Query para buscar analytics das empresas
-  const { data: analytics, isLoading, refetch, isRefetching } = useQuery({
+  const { data: analytics, isLoading, refetch, isRefetching, error } = useQuery({
     queryKey: ['admin-company-analytics'],
     queryFn: async () => {
       // Buscar empresas com suas métricas
@@ -71,76 +71,101 @@ export default function AdminAnalyticsScreen({ navigation }: any) {
 
       if (error) throw error;
 
-      // Para cada empresa, calcular métricas básicas
-      const analyticsData: CompanyAnalytics[] = await Promise.all(
+      // Para cada empresa, calcular métricas básicas com tratamento de erro individual
+      const analyticsData = await Promise.all(
         (companies || []).map(async (company) => {
-          // Contar transações
-          const { count: totalTransactions } = await supabase
-            .from('transactions')
-            .select('*', { count: 'exact', head: true })
-            .eq('company_id', company.id);
+          try {
+            // Contar transações
+            const { count: totalTransactions, error: txError } = await supabase
+              .from('transactions')
+              .select('*', { count: 'exact', head: true })
+              .eq('company_id', company.id);
 
-          // Transações esta semana
-          const weekAgo = new Date();
-          weekAgo.setDate(weekAgo.getDate() - 7);
-          const { count: transactionsWeek } = await supabase
-            .from('transactions')
-            .select('*', { count: 'exact', head: true })
-            .eq('company_id', company.id)
-            .gte('created_at', weekAgo.toISOString());
+            if (txError) throw txError;
 
-          // Calcular Health Score baseado em métricas disponíveis
-          const daysSinceCreation = Math.floor(
-            (Date.now() - new Date(company.created_at).getTime()) / (1000 * 60 * 60 * 24)
-          );
-          
-          // Score baseado em atividade
-          let healthScore = 50;
-          
-          // Fator: Transações na semana (máx 40 pontos)
-          if ((transactionsWeek ?? 0) >= 10) healthScore += 40;
-          else if ((transactionsWeek ?? 0) >= 5) healthScore += 30;
-          else if ((transactionsWeek ?? 0) >= 1) healthScore += 15;
-          
-          // Fator: Total de transações (máx 30 pontos)
-          if ((totalTransactions ?? 0) >= 100) healthScore += 30;
-          else if ((totalTransactions ?? 0) >= 50) healthScore += 20;
-          else if ((totalTransactions ?? 0) >= 10) healthScore += 10;
-          
-          // Fator: Status da assinatura (máx 20 pontos)
-          if (company.status === 'active') healthScore += 20;
-          else if (company.status === 'trial') healthScore += 10;
-          
-          // Limitar entre 0 e 100
-          healthScore = Math.max(0, Math.min(100, healthScore));
-          
-          // Determinar status
-          let healthStatus: 'saudavel' | 'morno' | 'risco' = 'morno';
-          let healthIndicator = '🟡';
-          
-          if (healthScore >= 80) {
-            healthStatus = 'saudavel';
-            healthIndicator = '🟢';
-          } else if (healthScore < 50) {
-            healthStatus = 'risco';
-            healthIndicator = '🔴';
+            // Transações esta semana
+            const weekAgo = new Date();
+            weekAgo.setDate(weekAgo.getDate() - 7);
+            const { count: transactionsWeek, error: txWeekError } = await supabase
+              .from('transactions')
+              .select('*', { count: 'exact', head: true })
+              .eq('company_id', company.id)
+              .gte('created_at', weekAgo.toISOString());
+
+            if (txWeekError) throw txWeekError;
+
+            // Calcular Health Score baseado em métricas disponíveis
+            const daysSinceCreation = Math.floor(
+              (Date.now() - new Date(company.created_at).getTime()) / (1000 * 60 * 60 * 24)
+            );
+
+            // Score baseado em atividade
+            let healthScore = 50;
+
+            // Fator: Transações na semana (máx 40 pontos)
+            if ((transactionsWeek ?? 0) >= 10) healthScore += 40;
+            else if ((transactionsWeek ?? 0) >= 5) healthScore += 30;
+            else if ((transactionsWeek ?? 0) >= 1) healthScore += 15;
+
+            // Fator: Total de transações (máx 30 pontos)
+            if ((totalTransactions ?? 0) >= 100) healthScore += 30;
+            else if ((totalTransactions ?? 0) >= 50) healthScore += 20;
+            else if ((totalTransactions ?? 0) >= 10) healthScore += 10;
+
+            // Fator: Status da assinatura (máx 20 pontos)
+            if (company.status === 'active') healthScore += 20;
+            else if (company.status === 'trial') healthScore += 10;
+            else if (company.status === 'blocked' || company.status === 'expired') healthScore -= 20;
+
+            // Limitar entre 0 e 100
+            healthScore = Math.max(0, Math.min(100, healthScore));
+
+            // Determinar status
+            let healthStatus: 'saudavel' | 'morno' | 'risco' = 'morno';
+            let healthIndicator = '🟡';
+
+            if (healthScore >= 80) {
+              healthStatus = 'saudavel';
+              healthIndicator = '🟢';
+            } else if (healthScore < 50) {
+              healthStatus = 'risco';
+              healthIndicator = '🔴';
+            }
+
+            return {
+              company_id: company.id,
+              company_name: company.name,
+              subscription_status: company.status,
+              trial_end: company.trial_end,
+              last_access: null, // Será implementado com a tabela de logs
+              days_since_last_access: 0, // Placeholder por enquanto
+              access_count_week: 0,
+              access_count_month: 0,
+              total_transactions: totalTransactions ?? 0,
+              transactions_this_week: transactionsWeek ?? 0,
+              health_score: healthScore,
+              health_status: healthStatus,
+              health_indicator: healthIndicator,
+            };
+          } catch (err) {
+            console.error(`Erro ao processar dados da empresa ${company.name}:`, err);
+            // Retorna objeto "seguro" em caso de erro
+            return {
+              company_id: company.id,
+              company_name: company.name,
+              subscription_status: company.status,
+              trial_end: company.trial_end,
+              last_access: null,
+              days_since_last_access: 0,
+              access_count_week: 0,
+              access_count_month: 0,
+              total_transactions: 0,
+              transactions_this_week: 0,
+              health_score: 0,
+              health_status: 'risco' as const,
+              health_indicator: '🔴',
+            };
           }
-
-          return {
-            company_id: company.id,
-            company_name: company.name,
-            subscription_status: company.status,
-            trial_end: company.trial_end,
-            last_access: null, // Será implementado com a tabela de logs
-            days_since_last_access: 0,
-            access_count_week: 0,
-            access_count_month: 0,
-            total_transactions: totalTransactions ?? 0,
-            transactions_this_week: transactionsWeek ?? 0,
-            health_score: healthScore,
-            health_status: healthStatus,
-            health_indicator: healthIndicator,
-          };
         })
       );
 
@@ -175,25 +200,25 @@ export default function AdminAnalyticsScreen({ navigation }: any) {
   const healthyCompanies = analytics?.filter(a => a.health_status === 'saudavel').length ?? 0;
   const warmCompanies = analytics?.filter(a => a.health_status === 'morno').length ?? 0;
   const riskCompanies = analytics?.filter(a => a.health_status === 'risco').length ?? 0;
-  const avgHealthScore = totalCompanies > 0 
+  const avgHealthScore = totalCompanies > 0
     ? Math.round((analytics?.reduce((sum, a) => sum + a.health_score, 0) ?? 0) / totalCompanies)
     : 0;
 
   // Card de resumo
-  const SummaryCard = ({ 
-    title, 
-    value, 
-    color, 
-    icon 
-  }: { 
-    title: string; 
-    value: number | string; 
-    color: string; 
+  const SummaryCard = ({
+    title,
+    value,
+    color,
+    icon
+  }: {
+    title: string;
+    value: number | string;
+    color: string;
     icon: string;
   }) => (
     <View style={[
       styles.summaryCard,
-      { 
+      {
         backgroundColor: isDark ? `${color}20` : `${color}10`,
         borderColor: isDark ? `${color}40` : 'transparent',
         borderWidth: isDark ? 1 : 0,
@@ -214,12 +239,12 @@ export default function AdminAnalyticsScreen({ navigation }: any) {
       blocked: '#EF4444',
     };
     const statusColor = statusColors[item.subscription_status as keyof typeof statusColors] || '#6B7280';
-    
+
     return (
       <TouchableOpacity
         style={[
           styles.companyCard,
-          { 
+          {
             backgroundColor: colors.cardBg,
             borderColor: colors.border,
           }
@@ -235,9 +260,9 @@ export default function AdminAnalyticsScreen({ navigation }: any) {
               <View style={styles.statusBadge}>
                 <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
                 <Text style={[styles.statusText, { color: colors.textSecondary }]}>
-                  {item.subscription_status === 'active' ? 'Ativo' : 
-                   item.subscription_status === 'trial' ? 'Trial' : 
-                   item.subscription_status === 'expired' ? 'Expirado' : 'Bloqueado'}
+                  {item.subscription_status === 'active' ? 'Ativo' :
+                    item.subscription_status === 'trial' ? 'Trial' :
+                      item.subscription_status === 'expired' ? 'Expirado' : 'Bloqueado'}
                 </Text>
               </View>
             </View>
@@ -245,9 +270,9 @@ export default function AdminAnalyticsScreen({ navigation }: any) {
           <View style={styles.healthScoreContainer}>
             <Text style={[
               styles.healthScoreValue,
-              { 
-                color: item.health_score >= 80 ? '#10B981' : 
-                       item.health_score >= 50 ? '#F59E0B' : '#EF4444'
+              {
+                color: item.health_score >= 80 ? '#10B981' :
+                  item.health_score >= 50 ? '#F59E0B' : '#EF4444'
               }
             ]}>
               {item.health_score}
@@ -255,7 +280,7 @@ export default function AdminAnalyticsScreen({ navigation }: any) {
             <Text style={[styles.healthScoreLabel, { color: colors.textMuted }]}>Score</Text>
           </View>
         </View>
-        
+
         <View style={styles.metricsRow}>
           <View style={styles.metricItem}>
             <Text style={[styles.metricValue, { color: colors.text }]}>{item.total_transactions}</Text>
@@ -277,24 +302,24 @@ export default function AdminAnalyticsScreen({ navigation }: any) {
   };
 
   // Botão de filtro
-  const FilterButton = ({ 
-    label, 
-    value, 
+  const FilterButton = ({
+    label,
+    value,
     count,
     color,
-  }: { 
-    label: string; 
-    value: typeof filterStatus; 
+  }: {
+    label: string;
+    value: typeof filterStatus;
     count: number;
     color: string;
   }) => {
     const isActive = filterStatus === value;
-    
+
     return (
       <TouchableOpacity
         style={[
           styles.filterButton,
-          { 
+          {
             backgroundColor: isActive ? color : isDark ? '#374151' : '#F3F4F6',
             borderColor: isActive ? color : colors.border,
           }
@@ -317,6 +342,31 @@ export default function AdminAnalyticsScreen({ navigation }: any) {
         <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
           Carregando analytics...
         </Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
+        <Text style={{ fontSize: 40, marginBottom: 16 }}>⚠️</Text>
+        <Text style={{ color: colors.text, fontSize: 16, fontWeight: '600', marginBottom: 8 }}>
+          Não foi possível carregar os dados
+        </Text>
+        <Text style={{ color: colors.textSecondary, fontSize: 13, marginBottom: 20, textAlign: 'center', paddingHorizontal: 40 }}>
+          Ocorreu um erro ao buscar as métricas. Verifique sua conexão e tente novamente.
+        </Text>
+        <TouchableOpacity
+          onPress={() => refetch()}
+          style={{
+            backgroundColor: '#3B82F6',
+            paddingHorizontal: 24,
+            paddingVertical: 12,
+            borderRadius: 8,
+          }}
+        >
+          <Text style={{ color: '#FFF', fontWeight: '700' }}>Tentar novamente</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -361,23 +411,23 @@ export default function AdminAnalyticsScreen({ navigation }: any) {
         </Text>
         <Text style={[
           styles.avgScoreValue,
-          { 
-            color: avgHealthScore >= 80 ? '#10B981' : 
-                   avgHealthScore >= 50 ? '#F59E0B' : '#EF4444'
+          {
+            color: avgHealthScore >= 80 ? '#10B981' :
+              avgHealthScore >= 50 ? '#F59E0B' : '#EF4444'
           }
         ]}>
           {avgHealthScore}/100
         </Text>
         <View style={styles.scoreBar}>
-          <View 
+          <View
             style={[
               styles.scoreBarFill,
-              { 
+              {
                 width: `${avgHealthScore}%`,
-                backgroundColor: avgHealthScore >= 80 ? '#10B981' : 
-                                 avgHealthScore >= 50 ? '#F59E0B' : '#EF4444'
+                backgroundColor: avgHealthScore >= 80 ? '#10B981' :
+                  avgHealthScore >= 50 ? '#F59E0B' : '#EF4444'
               }
-            ]} 
+            ]}
           />
         </View>
       </View>
@@ -456,7 +506,7 @@ export default function AdminAnalyticsScreen({ navigation }: any) {
         <TextInput
           style={[
             styles.searchInput,
-            { 
+            {
               backgroundColor: colors.inputBg,
               color: colors.text,
               borderColor: colors.border,
@@ -467,9 +517,9 @@ export default function AdminAnalyticsScreen({ navigation }: any) {
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
-        
-        <ScrollView 
-          horizontal 
+
+        <ScrollView
+          horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.filtersRow}
         >
@@ -485,7 +535,7 @@ export default function AdminAnalyticsScreen({ navigation }: any) {
         <Text style={[styles.sectionTitle, { color: colors.text }]}>
           Empresas ({filteredAnalytics.length})
         </Text>
-        
+
         {filteredAnalytics.length === 0 ? (
           <View style={[styles.emptyState, { backgroundColor: colors.cardBg }]}>
             <Text style={[styles.emptyStateText, { color: colors.textSecondary }]}>

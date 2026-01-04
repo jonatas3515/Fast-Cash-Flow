@@ -101,7 +101,98 @@ export default function LoginGate({ onOk, onBack }: Props) {
           // Usar localStorage para persistir sessão entre refreshes
           const v = window.localStorage.getItem(KEY);
           const role = (window.localStorage.getItem(ROLE_KEY) as 'admin' | 'user') || 'user';
-          if (v === '1') { onOk(role); return; }
+          if (v === '1') {
+            // IMPORTANTE: Verificar se company_id existe, se não, tentar restaurar
+            let companyId = window.localStorage.getItem('auth_company_id');
+
+            if (!companyId) {
+              console.log('[🔄 LOGIN] company_id não encontrado, iniciando protocolos de restauração...');
+
+              // ESTRATÉGIA 1: Tentar pelo nome salvo (auth_name)
+              let authName = window.localStorage.getItem('auth_name');
+
+              // ESTRATÉGIA 2: Tentar pelo remember_name se auth_name falhar
+              if (!authName) {
+                authName = window.localStorage.getItem('remember_name');
+                if (authName) console.log('[🔄 LOGIN] Tentando restaurar usando remember_name:', authName);
+              }
+
+              if (authName) {
+                try {
+                  // Tentar buscar empresa pelo nome ou username
+                  let compRes = await supabase.from('companies').select('id').ilike('name', authName).maybeSingle();
+                  let comp = compRes.data as any;
+
+                  if (!comp?.id) {
+                    compRes = await supabase.from('companies').select('id').ilike('username', authName).maybeSingle();
+                    comp = compRes.data as any;
+                  }
+
+                  if (comp?.id) {
+                    window.localStorage.setItem('auth_company_id', comp.id);
+                    companyId = comp.id;
+                    console.log('[✅ LOGIN] company_id restaurado via NOME:', comp.id);
+                  }
+                } catch (e) {
+                  console.error('[❌ LOGIN] Erro ao restaurar por nome:', e);
+                }
+              }
+
+              // ESTRATÉGIA 3: Tentar pelo usuário logado no Supabase (último recurso)
+              if (!companyId) {
+                console.log('[🔄 LOGIN] Tentando restaurar via Sessão Supabase...');
+                try {
+                  const { data: { user } } = await supabase.auth.getUser();
+                  if (user?.email) {
+                    // Tenta achar empresa onde o email é o dono ou tem acesso (simplificado pelo email/username)
+                    // Nota: Isso é um "tiro no escuro" baseado no email, assumindo que o username pode ser o email
+                    // ou tentando achar pelo metadados se houver.
+                    // Por enquanto vamos tentar usar o email como username (comum em alguns casos)
+                    // ou buscar na tabela de companies se houver coluna de email (não padrão aqui, mas...)
+
+                    // Busca genérica tentando match no username
+                    const possibleUsername = user.email.split('@')[0];
+                    const compRes = await supabase.from('companies').select('id').ilike('username', possibleUsername).maybeSingle();
+                    if (compRes.data?.id) {
+                      window.localStorage.setItem('auth_company_id', compRes.data.id);
+                      companyId = compRes.data.id;
+                      console.log('[✅ LOGIN] company_id restaurado via SUPABASE USER:', companyId);
+                    }
+                  }
+                } catch (e) {
+                  console.error('[❌ LOGIN] Erro ao restaurar por usuário Supabase:', e);
+                }
+              }
+
+              // SEPARAR SYNC DE RESTAURAÇÃO:
+              // Se restaurou o companyId, garantir sync
+              if (companyId) {
+                // Antes de prosseguir, garantir sync inicial se possível
+                // syncAll() verifica auth_company_id internamente, que acabamos de garantir se possível
+                try {
+                  console.log('[🔄 LOGIN] Sessão restaurada, sincronizando...');
+                  // Não aguardar sync para não bloquear UI, mas disparar
+                  syncAll().catch(e => console.warn('Sync background failed:', e));
+                } catch { }
+              }
+
+              // CHECK FINAL: Se ainda não temos company_id, a sessão está corrompida.
+              // Devemos limpar tudo para forçar um login limpo e evitar o loop de sync infinito.
+              if (!companyId) {
+                console.warn('[⛔ LOGIN] FALHA CRÍTICA na restauração. Sessão corrompida. Forçando logout...');
+                window.localStorage.removeItem(KEY);
+                window.localStorage.removeItem(ROLE_KEY);
+                window.localStorage.removeItem('auth_name');
+                window.localStorage.removeItem('auth_company_id');
+                setChecking(false); // Para de verificar e mostra tela de login
+                return; // Encerra aqui
+              }
+            }
+
+            // Se chegou aqui, temos (ou recuperamos) o company_id
+            onOk(role);
+            return;
+          }
           try {
             const r = window.localStorage.getItem('remember_user') === '1';
             const name = window.localStorage.getItem('remember_name') || '';
@@ -117,7 +208,47 @@ export default function LoginGate({ onOk, onBack }: Props) {
         } else {
           const v = await SecureStore.getItemAsync(KEY);
           const role = (await SecureStore.getItemAsync(ROLE_KEY) as 'admin' | 'user') || 'user';
-          if (v === '1') { onOk(role); return; }
+          if (v === '1') {
+            // IMPORTANTE: Verificar se company_id existe, se não, tentar restaurar
+            let companyId = await SecureStore.getItemAsync('auth_company_id');
+            if (!companyId) {
+              console.log('[🔄 LOGIN] company_id não encontrado, tentando restaurar...');
+              const authName = await SecureStore.getItemAsync('auth_name');
+              if (authName) {
+                try {
+                  let compRes = await supabase.from('companies').select('id').ilike('name', authName).maybeSingle();
+                  let comp = compRes.data as any;
+                  if (!comp?.id) {
+                    compRes = await supabase.from('companies').select('id').ilike('username', authName).maybeSingle();
+                    comp = compRes.data as any;
+                  }
+                  if (comp?.id) {
+                    await SecureStore.setItemAsync('auth_company_id', comp.id);
+                    console.log('[✅ LOGIN] company_id restaurado:', comp.id);
+                  } else {
+                    console.warn('[⚠️ LOGIN] Não foi possível restaurar company_id para:', authName);
+                  }
+                } catch (e) {
+                  console.error('[❌ LOGIN] Erro ao restaurar company_id:', e);
+                }
+              }
+            }
+            // For one last check, if we still don't have companyId, we should force clear to avoid corrupt state loops
+            // BUT: only if role is user. Admin doesn't need companyId.
+            if (role === 'user') {
+              const finalCheck = await SecureStore.getItemAsync('auth_company_id');
+              if (!finalCheck) {
+                console.warn('[⛔ LOGIN] Falha crítica: role=user mas sem company_id no SecureStore. Logout forçado.');
+                await SecureStore.deleteItemAsync(KEY);
+                await SecureStore.deleteItemAsync(ROLE_KEY);
+                await SecureStore.deleteItemAsync('auth_name');
+                setChecking(false);
+                return;
+              }
+            }
+            onOk(role);
+            return;
+          }
           try {
             const r = (await SecureStore.getItemAsync('remember_user')) === '1';
             const name = (await SecureStore.getItemAsync('remember_name')) || '';
@@ -132,12 +263,28 @@ export default function LoginGate({ onOk, onBack }: Props) {
   }, []);
 
   const finishSession = async (role: 'admin' | 'user', u: string, originalUsername?: string) => {
-    // Salvar sessão inicial (será atualizado com nome real da empresa abaixo)
     // u é o nome normalizado, originalUsername é o que o usuário digitou
     const displayName = originalUsername || u;
-    // Usar localStorage para persistir sessão entre refreshes da página
-    if (Platform.OS === 'web') { window.localStorage.setItem(KEY, '1'); window.localStorage.setItem(ROLE_KEY, role); window.localStorage.setItem('auth_name', displayName.trim()); }
-    else { await SecureStore.setItemAsync(KEY, '1'); await SecureStore.setItemAsync(ROLE_KEY, role); await SecureStore.setItemAsync('auth_name', displayName.trim()); }
+
+    // Caso especial para admin: não precisa de company logic
+    if (role === 'admin') {
+      if (Platform.OS === 'web') {
+        window.localStorage.setItem(KEY, '1');
+        window.localStorage.setItem(ROLE_KEY, 'admin');
+        window.localStorage.removeItem('auth_company_id'); // Admin não tem empresa
+      } else {
+        await SecureStore.setItemAsync(KEY, '1');
+        await SecureStore.setItemAsync(ROLE_KEY, 'admin');
+        await SecureStore.deleteItemAsync('auth_company_id');
+      }
+      onOk('admin');
+      return;
+    }
+
+    // Fluxo normal para users / companies
+    // IMPORTANTE: Buscar e salvar company_id PRIMEIRO, antes de qualquer outra coisa
+    // Isso garante que quando App.tsx chamar syncAll(), o company_id já estará disponível
+    let companyIdSaved = false;
 
     try {
       let compRes = await supabase.from('companies').select('id,name,username,logo_url,status,trial_end,deleted_at').ilike('username', u).maybeSingle();
@@ -147,11 +294,6 @@ export default function LoginGate({ onOk, onBack }: Props) {
         comp = byName.data as any;
       }
       if (comp?.id) {
-        // Atualizar auth_name com o nome REAL da empresa do banco (preserva espaços e caracteres especiais)
-        const realCompanyName = comp.name || u.trim();
-        if (Platform.OS === 'web') { window.localStorage.setItem('auth_name', realCompanyName); }
-        else { await SecureStore.setItemAsync('auth_name', realCompanyName); }
-
         // Bloqueio para empresas excluídas (soft delete)
         if (comp.deleted_at) {
           const deletedAt = new Date(comp.deleted_at);
@@ -183,47 +325,84 @@ export default function LoginGate({ onOk, onBack }: Props) {
         // Limpar cache de sync antes de trocar de empresa
         clearCompanyIdCache();
 
-        if (Platform.OS === 'web') { window.localStorage.setItem('auth_company_id', comp.id); }
-        else { await SecureStore.setItemAsync('auth_company_id', comp.id); }
+        // CRÍTICO: Salvar company_id PRIMEIRO, antes de tudo
+        if (Platform.OS === 'web') {
+          window.localStorage.setItem('auth_company_id', comp.id);
+        } else {
+          await SecureStore.setItemAsync('auth_company_id', comp.id);
+        }
+        companyIdSaved = true;
+        console.log('[🔐 LOGIN] Company ID salvo PRIMEIRO:', comp.id);
 
-        console.log('[🔐 LOGIN] Company ID salvo:', comp.id);
+        // Agora salvar os outros dados de sessão
+        const realCompanyName = comp.name || u.trim();
+        if (Platform.OS === 'web') {
+          window.localStorage.setItem(KEY, '1');
+          window.localStorage.setItem(ROLE_KEY, 'user'); // Força 'user'
+          window.localStorage.setItem('auth_name', realCompanyName);
+        } else {
+          await SecureStore.setItemAsync(KEY, '1');
+          await SecureStore.setItemAsync(ROLE_KEY, 'user'); // Força 'user'
+          await SecureStore.setItemAsync('auth_name', realCompanyName);
+        }
+
         try { await setLogoUrl(comp.logo_url || null); } catch { }
         try { await refreshCompanyProfile(); } catch { }
+      } else {
+        console.warn('[LOGIN] Não foi encontrado registro de empresa para:', u);
+        setError('Erro ao carregar dados da empresa. Contate o suporte.');
+        return; // Não prosseguir se não achou a empresa
       }
-    } catch { }
+    } catch (e) {
+      console.error('[LOGIN] Erro ao buscar/salvar company:', e);
+      setError('Erro de conexão ao buscar empresa.');
+      return;
+    }
 
+    if (!companyIdSaved) {
+      // Se falhou em salvar company id, é crítico para users
+      setError('Falha crítica de sessão. Tente novamente.');
+      return;
+    }
+
+    // ... Remember user logic ok to keep ...
+    // Salvar preferência de "lembrar usuário"
     try {
-      // Usar o nome original que o usuário digitou para o remember
       const nameToSave = originalUsername || displayName;
       console.log('[LOGIN] Salvando remember:', remember, 'username:', nameToSave);
       if (remember) {
         if (Platform.OS === 'web') {
           window.localStorage.setItem('remember_user', '1');
           window.localStorage.setItem('remember_name', nameToSave.trim());
-          console.log('[LOGIN] Remember salvo no localStorage:', nameToSave.trim());
         }
         else {
           await SecureStore.setItemAsync('remember_user', '1');
           await SecureStore.setItemAsync('remember_name', nameToSave.trim());
-          console.log('[LOGIN] Remember salvo no SecureStore:', nameToSave.trim());
         }
       } else {
         if (Platform.OS === 'web') {
           window.localStorage.removeItem('remember_user');
           window.localStorage.removeItem('remember_name');
-          console.log('[LOGIN] Remember removido do localStorage');
         }
         else {
           await SecureStore.deleteItemAsync('remember_user');
           await SecureStore.deleteItemAsync('remember_name');
-          console.log('[LOGIN] Remember removido do SecureStore');
         }
       }
     } catch (e) {
       console.error('[LOGIN] Erro ao salvar remember:', e);
     }
-    try { await syncAll(); } catch { }
-    onOk(role);
+
+    // Fazer sync inicial e AGUARDAR completar antes de navegar
+    console.log('[🔄 LOGIN] Iniciando sync antes de onOk...');
+    try {
+      await syncAll();
+      console.log('[✅ LOGIN] Sync concluído, chamando onOk');
+    } catch (e) {
+      console.warn('[⚠️ LOGIN] Sync falhou, mas continuando:', e);
+    }
+
+    onOk('user');
   };
 
   const normalizeLogin = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -235,15 +414,20 @@ export default function LoginGate({ onOk, onBack }: Props) {
     let approvedMatchId: string | null = null;
     if (u === ADMIN_USER && pass === ADMIN_PASS) {
       role = 'admin';
-      // Establish Supabase session for admin to access protected resources
+      // Estabelecer sessão Supabase para admin (necessário para RLS e Storage)
       try {
         const { error } = await supabase.auth.signInWithPassword({ email: ADMIN_EMAIL, password: ADMIN_PASS });
-        if (error) throw error;
+        if (error) {
+          console.log('[LOGIN ADMIN] Erro no signIn, tentando criar usuário admin...', error.message);
+          // Se falhar (ex: usuário não existe), tenta criar e logar de novo
+          const signUpRes = await supabase.auth.signUp({ email: ADMIN_EMAIL, password: ADMIN_PASS });
+          if (signUpRes.error) console.warn('[LOGIN ADMIN] Warn no signUp:', signUpRes.error.message);
+
+          const retry = await supabase.auth.signInWithPassword({ email: ADMIN_EMAIL, password: ADMIN_PASS });
+          if (retry.error) console.error('[LOGIN ADMIN] Falha fatal no sign in do admin:', retry.error.message);
+        }
       } catch (e: any) {
-        try {
-          await supabase.auth.signUp({ email: ADMIN_EMAIL, password: ADMIN_PASS });
-          await supabase.auth.signInWithPassword({ email: ADMIN_EMAIL, password: ADMIN_PASS });
-        } catch { }
+        console.error('[LOGIN ADMIN] Exceção no fluxo de auth:', e);
       }
     } else if (u === USER && pass === PASS) {
       role = 'user';

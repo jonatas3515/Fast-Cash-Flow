@@ -36,10 +36,10 @@ export default function AdminCouponsScreen({ navigation }: any) {
   const { theme, mode } = useThemeCtx();
   const isDark = mode === 'dark';
   const queryClient = useQueryClient();
-  
+
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingCoupon, setEditingCoupon] = useState<Coupon | null>(null);
-  
+
   // Form state
   const [formCode, setFormCode] = useState('');
   const [formName, setFormName] = useState('');
@@ -74,7 +74,7 @@ export default function AdminCouponsScreen({ navigation }: any) {
         .order('created_at', { ascending: false });
 
       if (error) {
-        console.error('Erro ao buscar cupons:', error);
+        console.warn('Tabela discount_coupons prov. não existe ou erro de conexão. Usando dados mockados.', error);
         // Retornar dados mockados se tabela não existir
         return [
           {
@@ -139,8 +139,12 @@ export default function AdminCouponsScreen({ navigation }: any) {
       Alert.alert('Sucesso', editingCoupon ? 'Cupom atualizado!' : 'Cupom criado!');
     },
     onError: (error) => {
-      Alert.alert('Erro', 'Não foi possível salvar o cupom');
-      console.error(error);
+      console.error('Erro ao salvar cupom:', error);
+      Alert.alert(
+        'Erro ao salvar',
+        'Não foi possível salvar o cupom no banco de dados. Verifique se a tabela "discount_coupons" existe e tente novamente.'
+      );
+      // Não fecha o modal para o usuário tentar novamente ou copiar os dados
     },
   });
 
@@ -225,7 +229,7 @@ export default function AdminCouponsScreen({ navigation }: any) {
   // Estatísticas
   const stats = React.useMemo(() => {
     if (!coupons) return { active: 0, totalUses: 0, totalDiscount: 0, totalRevenue: 0 };
-    
+
     return {
       active: coupons.filter(c => c.is_active).length,
       totalUses: coupons.reduce((sum, c) => sum + c.current_uses, 0),
@@ -298,7 +302,7 @@ export default function AdminCouponsScreen({ navigation }: any) {
           <Text style={[styles.sectionTitle, { color: colors.text }]}>
             📋 Cupons Cadastrados
           </Text>
-          
+
           {isLoading ? (
             <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
               Carregando...
@@ -310,8 +314,8 @@ export default function AdminCouponsScreen({ navigation }: any) {
                   key={coupon.id}
                   style={[
                     styles.couponCard,
-                    { 
-                      backgroundColor: colors.cardBg, 
+                    {
+                      backgroundColor: colors.cardBg,
                       borderColor: coupon.is_active ? colors.primary : colors.border,
                       opacity: coupon.is_active ? 1 : 0.6,
                     }
@@ -329,11 +333,11 @@ export default function AdminCouponsScreen({ navigation }: any) {
                       thumbColor={coupon.is_active ? colors.success : colors.textSecondary}
                     />
                   </View>
-                  
+
                   <Text style={[styles.couponName, { color: colors.text }]}>
                     {coupon.name}
                   </Text>
-                  
+
                   <View style={styles.couponDetails}>
                     <View style={styles.couponDetail}>
                       <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>Desconto</Text>

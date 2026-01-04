@@ -15,6 +15,7 @@ import { DrawerContentScrollView, DrawerContentComponentProps } from '@react-nav
 import { useThemeCtx } from '../theme/ThemeProvider';
 import { supabase } from '../lib/supabase';
 import * as SecureStore from 'expo-secure-store';
+import { useAdminUnreadMessages } from '../hooks/useUnreadMessages';
 
 // Habilitar LayoutAnimation no Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -41,9 +42,10 @@ interface DrawerItemProps {
   isActive: boolean;
   theme: any;
   isSubItem?: boolean;
+  badge?: number; // Número de notificações
 }
 
-const DrawerItem: React.FC<DrawerItemProps> = ({ label, icon, onPress, isActive, theme, isSubItem = false }) => {
+const DrawerItem: React.FC<DrawerItemProps> = ({ label, icon, onPress, isActive, theme, isSubItem = false, badge }) => {
   return (
     <TouchableOpacity
       onPress={onPress}
@@ -71,6 +73,11 @@ const DrawerItem: React.FC<DrawerItemProps> = ({ label, icon, onPress, isActive,
       >
         {label}
       </Text>
+      {badge && badge > 0 && (
+        <View style={styles.badgeContainer}>
+          <Text style={styles.badgeText}>{badge > 99 ? '99+' : badge}</Text>
+        </View>
+      )}
     </TouchableOpacity>
   );
 };
@@ -83,7 +90,8 @@ const CollapsibleSection: React.FC<{
   currentRoute: string;
   theme: any;
   onNavigate: (name: string) => void;
-}> = ({ section, isExpanded, onToggle, currentRoute, theme, onNavigate }) => {
+  getBadge?: (itemName: string) => number | undefined;
+}> = ({ section, isExpanded, onToggle, currentRoute, theme, onNavigate, getBadge }) => {
   const hasActiveItem = section.items.some(item => item.name === currentRoute);
 
   return (
@@ -116,6 +124,7 @@ const CollapsibleSection: React.FC<{
               theme={theme}
               isSubItem
               onPress={() => onNavigate(item.name)}
+              badge={getBadge?.(item.name)}
             />
           ))}
         </View>
@@ -131,6 +140,17 @@ export default function CustomAdminDrawerContent(props: DrawerContentComponentPr
   const defaultLogoUrl = 'https://i.im.ge/2025/11/03/nH0whJ.Logo-Black.png';
 
   const currentRoute = props.state.routes[props.state.index].name;
+
+  // Hook para mensagens não lidas
+  const { data: unreadCount } = useAdminUnreadMessages();
+
+  // Função para obter badge por item
+  const getBadge = (itemName: string): number | undefined => {
+    if (itemName === 'Suporte') {
+      return unreadCount && unreadCount > 0 ? unreadCount : undefined;
+    }
+    return undefined;
+  };
 
   const logout = async () => {
     console.log('[🚪 LOGOUT] Iniciando logout admin...');
@@ -348,6 +368,7 @@ export default function CustomAdminDrawerContent(props: DrawerContentComponentPr
             currentRoute={currentRoute}
             theme={theme}
             onNavigate={handleNavigate}
+            getBadge={getBadge}
           />
         ))}
       </ScrollView>
@@ -531,5 +552,20 @@ const styles = StyleSheet.create({
   footerText: {
     fontSize: 10,
     fontWeight: '500',
+  },
+  badgeContainer: {
+    backgroundColor: '#EF4444',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    marginLeft: 8,
+  },
+  badgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
   },
 });

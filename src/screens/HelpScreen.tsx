@@ -193,7 +193,7 @@ export default function HelpScreen({ navigation }: any) {
               Outras formas de contato
             </Text>
             <Text style={[styles.contactText, { color: colors.textSecondary }]}>
-              WhatsApp: (11) 99999-9999{'\n'}
+              WhatsApp: (73) 99934-8552{'\n'}
               Email: suporte@fastcashflow.com.br
             </Text>
           </View>

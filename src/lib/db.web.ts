@@ -112,10 +112,36 @@ export const getDb = (): DB => {
         const id = args[args.length - 1];
         const row = rows.find(r => r.id === id);
         if (row) {
-          if (sql.includes('deleted_at = ?')) {
-            row.deleted_at = args[0];
+          // Parse SQL para identificar posições corretas dos campos
+          // Formato: UPDATE transactions_local SET field1 = ?, field2 = ?, ... WHERE id = ?
+          const setMatch = sql.match(/SET\s+(.+?)\s+WHERE/i);
+          if (setMatch) {
+            const setPart = setMatch[1];
+            // Encontrar campos com placeholders (ignorar literals como 'version + 1')
+            const fieldMatches = setPart.matchAll(/(\w+)\s*=\s*\?/g);
+            let argIndex = 0;
+            for (const match of fieldMatches) {
+              const fieldName = match[1];
+              if (argIndex < args.length - 1) { // -1 porque o último é o ID
+                const value = args[argIndex];
+                // Atribuir valor ao campo correspondente
+                if (fieldName === 'type') row.type = value;
+                else if (fieldName === 'description') row.description = value;
+                else if (fieldName === 'category') row.category = value;
+                else if (fieldName === 'clientname') row.clientname = value;
+                else if (fieldName === 'expensetype') row.expensetype = value;
+                else if (fieldName === 'amount_cents') row.amount_cents = value;
+                else if (fieldName === 'date') row.date = value;
+                else if (fieldName === 'time') row.time = value;
+                else if (fieldName === 'datetime') row.datetime = value;
+                else if (fieldName === 'updated_at') row.updated_at = value;
+                else if (fieldName === 'deleted_at') row.deleted_at = value;
+                else if (fieldName === 'source_device') row.source_device = value;
+                argIndex++;
+              }
+            }
           }
-          row.updated_at = args[1] || row.updated_at;
+          // Sempre incrementar versão e marcar como dirty
           row.version = (row.version ?? 1) + 1;
           row.dirty = 1;
         }

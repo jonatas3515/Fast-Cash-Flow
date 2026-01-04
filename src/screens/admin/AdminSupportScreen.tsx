@@ -67,45 +67,66 @@ export default function AdminSupportScreen({ navigation }: any) {
   const { data: conversations, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ['admin-support-conversations'],
     queryFn: async () => {
-      // Buscar empresas com suas conversas
-      const { data: companies } = await supabase
-        .from('companies')
-        .select('id, name, status')
-        .is('deleted_at', null)
-        .order('name');
+      try {
+        // Buscar empresas com suas conversas
+        const { data: companies, error: companiesError } = await supabase
+          .from('companies')
+          .select('id, name, status')
+          .is('deleted_at', null)
+          .order('name');
 
-      if (!companies) return [];
-
-      // Buscar conversas
-      const { data: convs } = await supabase
-        .from('support_conversations')
-        .select('*');
-
-      // Combinar dados
-      const result: Conversation[] = companies.map(company => {
-        const conv = convs?.find(c => c.company_id === company.id);
-        return {
-          company_id: company.id,
-          company_name: company.name,
-          company_status: company.status,
-          total_messages: conv?.total_messages || 0,
-          unread_by_admin: conv?.unread_by_admin || 0,
-          last_message_at: conv?.last_message_at || '',
-          last_message_preview: conv?.last_message_preview || '',
-          last_message_direction: conv?.last_message_direction || '',
-        };
-      });
-
-      // Ordenar: não lidas primeiro, depois por última mensagem
-      return result.sort((a, b) => {
-        if (a.unread_by_admin !== b.unread_by_admin) {
-          return b.unread_by_admin - a.unread_by_admin;
+        if (companiesError) {
+          console.error('Erro ao buscar empresas para suporte:', companiesError);
+          return [];
         }
-        if (a.last_message_at && b.last_message_at) {
-          return new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime();
+
+        if (!companies || companies.length === 0) return [];
+
+        // Buscar conversas - pode não existir a tabela
+        let convs: any[] = [];
+        try {
+          const { data: convsData, error: convsError } = await supabase
+            .from('support_conversations')
+            .select('*');
+
+          if (convsError) {
+            console.warn('Tabela support_conversations não disponível:', convsError.message);
+          } else {
+            convs = convsData || [];
+          }
+        } catch {
+          console.warn('Erro ao acessar support_conversations, continuando sem dados de conversa');
         }
-        return a.company_name.localeCompare(b.company_name);
-      });
+
+        // Combinar dados
+        const result: Conversation[] = companies.map(company => {
+          const conv = convs.find(c => c.company_id === company.id);
+          return {
+            company_id: company.id,
+            company_name: company.name,
+            company_status: company.status,
+            total_messages: conv?.total_messages || 0,
+            unread_by_admin: conv?.unread_by_admin || 0,
+            last_message_at: conv?.last_message_at || '',
+            last_message_preview: conv?.last_message_preview || '',
+            last_message_direction: conv?.last_message_direction || '',
+          };
+        });
+
+        // Ordenar: não lidas primeiro, depois por última mensagem
+        return result.sort((a, b) => {
+          if (a.unread_by_admin !== b.unread_by_admin) {
+            return b.unread_by_admin - a.unread_by_admin;
+          }
+          if (a.last_message_at && b.last_message_at) {
+            return new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime();
+          }
+          return a.company_name.localeCompare(b.company_name);
+        });
+      } catch (error) {
+        console.error('Erro geral ao carregar conversas de suporte:', error);
+        return [];
+      }
     },
     refetchInterval: 30000,
   });

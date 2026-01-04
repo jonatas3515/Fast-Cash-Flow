@@ -2,9 +2,9 @@ import React, { useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native';
 import { useThemeCtx } from '../../theme/ThemeProvider';
 import { useQuery } from '@tanstack/react-query';
-import { 
-  getCompaniesEngagement, 
-  getActivationMetrics, 
+import {
+  getCompaniesEngagement,
+  getActivationMetrics,
   getEngagementOverview,
   CompanyEngagement,
   UserSegment,
@@ -52,25 +52,60 @@ export default function AdminEngagementScreen({ navigation }: { navigation: any 
   };
 
   const isLoading = engagementQuery.isLoading || activationQuery.isLoading || overviewQuery.isLoading;
+  const hasError = engagementQuery.error || activationQuery.error || overviewQuery.error;
   const activation = activationQuery.data;
   const overview = overviewQuery.data;
   const companies = engagementQuery.data || [];
 
   // Filtrar empresas por segmento
-  const filteredCompanies = selectedSegment === 'all' 
-    ? companies 
+  const filteredCompanies = selectedSegment === 'all'
+    ? companies
     : companies.filter(c => c.segment === selectedSegment);
+
+  const onRefreshAll = async () => {
+    await Promise.all([
+      engagementQuery.refetch(),
+      activationQuery.refetch(),
+      overviewQuery.refetch(),
+    ]);
+  };
 
   if (isLoading) {
     return (
-      <View style={[styles.container, { backgroundColor: theme.background }]}>
+      <View style={[styles.container, { backgroundColor: theme.background, justifyContent: 'center', alignItems: 'center' }]}>
         <ActivityIndicator size="large" color={theme.text} />
+        <Text style={{ color: theme.textSecondary, marginTop: 12 }}>Carregando engajamento...</Text>
+      </View>
+    );
+  }
+
+  if (hasError) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.background, justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={{ fontSize: 40, marginBottom: 16 }}>⚠️</Text>
+        <Text style={{ color: theme.text, fontSize: 16, fontWeight: '600', marginBottom: 8 }}>
+          Não foi possível carregar os dados
+        </Text>
+        <Text style={{ color: theme.textSecondary, fontSize: 13, marginBottom: 20, textAlign: 'center', paddingHorizontal: 40 }}>
+          Ocorreu um erro ao buscar métricas de engajamento. Verifique sua conexão e tente novamente.
+        </Text>
+        <TouchableOpacity
+          onPress={onRefreshAll}
+          style={{
+            backgroundColor: '#3B82F6',
+            paddingHorizontal: 24,
+            paddingVertical: 12,
+            borderRadius: 8,
+          }}
+        >
+          <Text style={{ color: '#FFF', fontWeight: '700' }}>Tentar novamente</Text>
+        </TouchableOpacity>
       </View>
     );
   }
 
   return (
-    <ScrollView 
+    <ScrollView
       style={[styles.container, { backgroundColor: theme.background }]}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
@@ -99,49 +134,54 @@ export default function AdminEngagementScreen({ navigation }: { navigation: any 
       {activation && (
         <View style={[styles.section, { backgroundColor: theme.card }]}>
           <Text style={[styles.sectionTitle, { color: theme.text }]}>🎯 Taxa de Ativação</Text>
-          
+
           <View style={styles.activationHeader}>
             <View style={styles.activationRate}>
-              <Text style={[styles.rateValue, { color: activation.activation_rate >= 50 ? '#10B981' : '#EF4444' }]}>
-                {activation.activation_rate}%
+              <Text style={[styles.rateValue, { color: (activation.activation_rate ?? 0) >= 50 ? '#10B981' : '#EF4444' }]}>
+                {activation.activation_rate ?? 0}%
               </Text>
               <Text style={[styles.rateLabel, { color: theme.textSecondary }]}>
-                {activation.activated_companies} de {activation.total_companies} empresas
+                {activation.activated_companies ?? 0} de {activation.total_companies ?? 0} empresas
               </Text>
             </View>
           </View>
 
           {/* Funil de Ativação */}
-          <Text style={[styles.funnelTitle, { color: theme.text }]}>Funil de Ativação:</Text>
-          {activation.funnel.map((step, index) => (
-            <View key={step.step} style={styles.funnelStep}>
-              <View style={styles.funnelInfo}>
-                <Text style={[styles.funnelStepNumber, { color: theme.textSecondary }]}>{index + 1}.</Text>
-                <Text style={[styles.funnelStepName, { color: theme.text }]}>{step.step}</Text>
-              </View>
-              <View style={styles.funnelBar}>
-                <View style={[styles.funnelFill, { width: `${step.percent}%`, backgroundColor: '#6366F1' }]} />
-              </View>
-              <Text style={[styles.funnelPercent, { color: theme.text }]}>{step.percent}%</Text>
-              <Text style={[styles.funnelCount, { color: theme.textSecondary }]}>({step.count})</Text>
-            </View>
-          ))}
+          {Array.isArray(activation.funnel) && activation.funnel.length > 0 && (
+            <>
+              <Text style={[styles.funnelTitle, { color: theme.text }]}>Funil de Ativação:</Text>
+              {activation.funnel.map((step, index) => (
+                <View key={step.step} style={styles.funnelStep}>
+                  <View style={styles.funnelInfo}>
+                    <Text style={[styles.funnelStepNumber, { color: theme.textSecondary }]}>{index + 1}.</Text>
+                    <Text style={[styles.funnelStepName, { color: theme.text }]}>{step.step}</Text>
+                  </View>
+                  <View style={styles.funnelBar}>
+                    <View style={[styles.funnelFill, { width: `${step.percent}%`, backgroundColor: '#6366F1' }]} />
+                  </View>
+                  <Text style={[styles.funnelPercent, { color: theme.text }]}>{step.percent}%</Text>
+                  <Text style={[styles.funnelCount, { color: theme.textSecondary }]}>({step.count})</Text>
+                </View>
+              ))}
+            </>
+          )}
         </View>
       )}
 
       {/* Segmentos */}
       <View style={[styles.section, { backgroundColor: theme.card }]}>
         <Text style={[styles.sectionTitle, { color: theme.text }]}>👥 Segmentos de Usuários</Text>
-        
+
         <View style={styles.segmentsGrid}>
-          {overview?.segments.map(seg => {
+          {Array.isArray(overview?.segments) && overview.segments.map(seg => {
             const info = SEGMENT_LABELS[seg.segment];
+            if (!info) return null; // Segmento desconhecido, pular
             return (
               <TouchableOpacity
                 key={seg.segment}
                 style={[
                   styles.segmentCard,
-                  { 
+                  {
                     backgroundColor: info.color + '20',
                     borderColor: selectedSegment === seg.segment ? info.color : 'transparent',
                     borderWidth: 2,
@@ -230,7 +270,7 @@ export default function AdminEngagementScreen({ navigation }: { navigation: any 
               {(company.segment === 'at_risk' || company.segment === 'dormant') && (
                 <TouchableOpacity
                   style={[styles.actionBtn, { backgroundColor: '#6366F1' }]}
-                  onPress={() => navigation.navigate('AdminBroadcast', { 
+                  onPress={() => navigation.navigate('Comunicados', {
                     preselectedCompanies: [company.company_id],
                     segment: company.segment,
                   })}
@@ -252,11 +292,11 @@ export default function AdminEngagementScreen({ navigation }: { navigation: any 
       {/* Ações em Massa */}
       <View style={[styles.section, { backgroundColor: theme.card }]}>
         <Text style={[styles.sectionTitle, { color: theme.text }]}>⚡ Ações Rápidas</Text>
-        
+
         <View style={styles.actionsGrid}>
           <TouchableOpacity
             style={[styles.quickAction, { backgroundColor: '#FEF3C7' }]}
-            onPress={() => navigation.navigate('AdminBroadcast', { segment: 'at_risk' })}
+            onPress={() => navigation.navigate('Comunicados', { segment: 'at_risk' })}
           >
             <Text style={styles.quickActionIcon}>⚠️</Text>
             <Text style={styles.quickActionText}>Mensagem para Em Risco</Text>
@@ -264,7 +304,7 @@ export default function AdminEngagementScreen({ navigation }: { navigation: any 
 
           <TouchableOpacity
             style={[styles.quickAction, { backgroundColor: '#FEE2E2' }]}
-            onPress={() => navigation.navigate('AdminBroadcast', { segment: 'dormant' })}
+            onPress={() => navigation.navigate('Comunicados', { segment: 'dormant' })}
           >
             <Text style={styles.quickActionIcon}>😴</Text>
             <Text style={styles.quickActionText}>Reativar Dormantes</Text>
@@ -272,7 +312,7 @@ export default function AdminEngagementScreen({ navigation }: { navigation: any 
 
           <TouchableOpacity
             style={[styles.quickAction, { backgroundColor: '#DBEAFE' }]}
-            onPress={() => navigation.navigate('AdminBroadcast', { segment: 'not_activated' })}
+            onPress={() => navigation.navigate('Comunicados', { segment: 'not_activated' })}
           >
             <Text style={styles.quickActionIcon}>🎯</Text>
             <Text style={styles.quickActionText}>Ajudar Não Ativados</Text>
@@ -280,7 +320,7 @@ export default function AdminEngagementScreen({ navigation }: { navigation: any 
 
           <TouchableOpacity
             style={[styles.quickAction, { backgroundColor: '#DCFCE7' }]}
-            onPress={() => navigation.navigate('AdminBroadcast', { segment: 'highly_engaged' })}
+            onPress={() => navigation.navigate('Comunicados', { segment: 'highly_engaged' })}
           >
             <Text style={styles.quickActionIcon}>🌟</Text>
             <Text style={styles.quickActionText}>Agradecer Engajados</Text>

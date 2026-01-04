@@ -798,8 +798,8 @@ export default function LandingPage({ trialDays, onRegister, onLogin }: Props) {
                                             tooltip: '',
                                         },
                                         {
-                                            dark: require('../../Fast Savory\'s.png'),
-                                            light: require('../../Fast Savory\'s.png'),
+                                            dark: require('../../assets/landing/FastSavorys.png'),
+                                            light: require('../../assets/landing/FastSavorys.png'),
                                             link: 'https://fastsavorys.vercel.app/pages/fast.html',
                                             isLocal: true,
                                             tooltip: '',

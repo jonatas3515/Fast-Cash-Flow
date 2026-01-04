@@ -40,6 +40,7 @@ import DashboardModeSelector, { useDashboardMode } from '../components/Dashboard
 import HealthActionCard from '../components/HealthActionCard';
 import { todayBrasilia } from '../utils/date';
 import { getCategoryGroupKey } from '../utils/segment';
+import FloatingAssistant from '../components/FloatingAssistant';
 
 // Função utilitária para formatação de data local
 const formatDateLocal = (dateString: string) => {
@@ -182,6 +183,15 @@ export default function DashboardScreen() {
   const [showRecurringOverdueModal, setShowRecurringOverdueModal] = React.useState(false);
   const [recurringOverdueShownOnce, setRecurringOverdueShownOnce] = React.useState(false);
   const [savingGoal, setSavingGoal] = React.useState(false);
+
+  // Company ID para o assistente flutuante
+  const [companyId, setCompanyId] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    getCurrentCompanyId().then((id) => {
+      if (id) setCompanyId(id);
+    });
+  }, []);
 
   // Estados para lançamento rápido
   const [showQuickActionModal, setShowQuickActionModal] = React.useState(false);
@@ -2330,29 +2340,12 @@ export default function DashboardScreen() {
         </View>
       )}
 
-      {/* Botão Flutuante de Ação Rápida */}
-      <TouchableOpacity
-        style={{
-          position: 'absolute',
-          bottom: 24,
-          right: 24,
-          backgroundColor: '#16a34a',
-          width: 56,
-          height: 56,
-          borderRadius: 28,
-          justifyContent: 'center',
-          alignItems: 'center',
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.25,
-          shadowRadius: 4,
-          elevation: 5,
-          zIndex: 1000,
-        }}
-        onPress={() => setShowQuickActionModal(true)}
-      >
-        <Text style={{ color: '#fff', fontSize: 24, fontWeight: 'bold' }}>⚡</Text>
-      </TouchableOpacity>
+      {/* Assistente Flutuante - substitui o botão antigo */}
+      <FloatingAssistant
+        companyId={companyId}
+        isAdmin={false}
+        onQuickAction={() => setShowQuickActionModal(true)}
+      />
 
       {/* Modal de Seleção de Ação Rápida */}
       {showQuickActionModal && !quickActionType && (

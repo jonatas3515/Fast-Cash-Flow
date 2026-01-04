@@ -84,6 +84,26 @@ function AppInner() {
     })();
   }, []);
 
+  // Helper para aguardar company_id estar disponível antes de sincronizar
+  const waitForCompanyIdAndSync = React.useCallback(async (maxWaitMs = 5000): Promise<boolean> => {
+    const checkInterval = 200; // Verificar a cada 200ms
+    let elapsed = 0;
+
+    while (elapsed < maxWaitMs) {
+      const companyId = window.localStorage?.getItem?.('auth_company_id');
+      if (companyId) {
+        console.log('[✅ APP] Company ID encontrado:', companyId);
+        await syncAll();
+        return true;
+      }
+      await new Promise(r => setTimeout(r, checkInterval));
+      elapsed += checkInterval;
+    }
+
+    console.warn('[⚠️ APP] Company ID não encontrado após', maxWaitMs, 'ms - sync ignorado');
+    return false;
+  }, []);
+
   React.useEffect(() => {
     if (!authed) return;
     (async () => {
@@ -92,29 +112,36 @@ function AppInner() {
         await ensureAnonAuth();
         await NotificationService.initialize(); // Inicializar notificações
         await SyncMonitor.loadLogs(); // Carregar logs de sincronização
-        await syncAll();
+        // Aguardar company_id antes de sincronizar
+        await waitForCompanyIdAndSync(5000);
       } catch (e) {
         console.warn('DB migrate error', e);
       } finally {
         setReady(true);
       }
     })();
-  }, [authed]);
+  }, [authed, waitForCompanyIdAndSync]);
 
   React.useEffect(() => {
     // periodic sync every 3s para garantir sincronização MUITO rápida
     if (!authed) return;
 
-    // Sync imediato ao autenticar
+    // Sync imediato ao autenticar - aguardar company_id
     console.log('[🚀 APP] Sync inicial ao autenticar...');
-    syncAll().catch(() => { });
+    waitForCompanyIdAndSync(3000).catch(() => { });
 
     const id = setInterval(() => {
-      console.log('[⏰ APP] Sync periódico a cada 3s...');
-      syncAll().catch((e) => console.warn('[⚠️ APP] Sync periódico falhou:', e));
+      // Para sync periódico, verificar company_id imediatamente
+      const companyId = window.localStorage?.getItem?.('auth_company_id');
+      if (companyId) {
+        console.log('[⏰ APP] Sync periódico a cada 3s...');
+        syncAll().catch((e) => console.warn('[⚠️ APP] Sync periódico falhou:', e));
+      } else {
+        console.log('[⏳ APP] Sync periódico ignorado - aguardando company_id...');
+      }
     }, 3000); // 3 segundos para sincronização mais agressiva
     return () => { clearInterval(id); };
-  }, [authed]);
+  }, [authed, waitForCompanyIdAndSync]);
 
   // Realtime Sync é gerenciado pelo CompanyContext
   // Não duplicar aqui para evitar conflitos de canais

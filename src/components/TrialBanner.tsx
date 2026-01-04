@@ -197,29 +197,29 @@ export default function TrialBanner({ navigation, onUpgrade }: TrialBannerProps)
   const isUrgent = daysLeft <= 5;
 
   // Determinar cor do banner baseado na urgência
-  const bannerColor = isExpired 
-    ? '#EF4444' 
-    : isUrgent 
-      ? '#F59E0B' 
+  const bannerColor = isExpired
+    ? '#EF4444'
+    : isUrgent
+      ? '#F59E0B'
       : '#3B82F6';
 
   // Abrir WhatsApp para upgrade
   const handleUpgrade = () => {
     // Buscar número do WhatsApp do localStorage ou usar padrão
-    let whatsappNumber = '5511999999999';
+    let whatsappNumber = '5573999348552';
     if (Platform.OS === 'web') {
       try {
         whatsappNumber = localStorage.getItem('fcf_whatsapp_number') || whatsappNumber;
-      } catch {}
+      } catch { }
     }
 
     const message = encodeURIComponent(
       `Olá! Gostaria de ativar minha assinatura do Fast Cash Flow.${offer?.discount_percent ? ` Vi que tenho ${offer.discount_percent}% de desconto disponível!` : ''}`
     );
-    
+
     const url = `https://wa.me/${whatsappNumber.replace(/\D/g, '')}?text=${message}`;
     Linking.openURL(url);
-    
+
     if (onUpgrade) onUpgrade();
   };
 
@@ -237,9 +237,9 @@ export default function TrialBanner({ navigation, onUpgrade }: TrialBannerProps)
           </Text>
           <View style={styles.bannerText}>
             <Text style={styles.bannerTitle}>
-              {isExpired 
-                ? 'Seu trial expirou!' 
-                : isUrgent 
+              {isExpired
+                ? 'Seu trial expirou!'
+                : isUrgent
                   ? `Apenas ${daysLeft} dia${daysLeft !== 1 ? 's' : ''} restante${daysLeft !== 1 ? 's' : ''}!`
                   : `${daysLeft} dias de trial restantes`
               }

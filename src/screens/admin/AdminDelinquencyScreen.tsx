@@ -72,10 +72,12 @@ export default function AdminDelinquencyScreen({ navigation }: any) {
 
       for (const company of companies) {
         if (!company.trial_end) continue;
-        
+
         const trialEnd = new Date(company.trial_end);
+        if (isNaN(trialEnd.getTime())) continue; // Skip invalid dates
+
         const daysOverdue = Math.floor((now.getTime() - trialEnd.getTime()) / (1000 * 60 * 60 * 24));
-        
+
         if (daysOverdue > 0) {
           let delinquencyStatus: 'yellow' | 'orange' | 'red' | 'black';
           if (daysOverdue <= 7) delinquencyStatus = 'yellow';
@@ -110,7 +112,7 @@ export default function AdminDelinquencyScreen({ navigation }: any) {
         .from('companies')
         .update({ status: newStatus })
         .eq('id', companyId);
-      
+
       if (error) throw error;
     },
     onSuccess: () => {
@@ -126,7 +128,7 @@ export default function AdminDelinquencyScreen({ navigation }: any) {
         .from('companies')
         .update({ deleted_at: new Date().toISOString() })
         .eq('id', companyId);
-      
+
       if (error) throw error;
     },
     onSuccess: () => {
@@ -167,7 +169,7 @@ export default function AdminDelinquencyScreen({ navigation }: any) {
   // Contadores por status
   const statusCounts = React.useMemo(() => {
     if (!delinquents) return { yellow: 0, orange: 0, red: 0, black: 0, total: 0 };
-    
+
     return {
       yellow: delinquents.filter(d => d.delinquency_status === 'yellow').length,
       orange: delinquents.filter(d => d.delinquency_status === 'orange').length,
@@ -220,7 +222,7 @@ export default function AdminDelinquencyScreen({ navigation }: any) {
         {/* Status Cards */}
         <View style={styles.statusGrid}>
           {Object.entries(STATUS_CONFIG).map(([key, config]) => (
-            <View 
+            <View
               key={key}
               style={[styles.statusCard, { backgroundColor: config.color + '20', borderColor: config.color }]}
             >
@@ -247,7 +249,7 @@ export default function AdminDelinquencyScreen({ navigation }: any) {
               { day: 'Dia 15', action: 'Bloqueio de recursos avançados', icon: '🔒' },
               { day: 'Dia 30', action: 'Soft delete da empresa', icon: '🗑️' },
             ].map((item, index) => (
-              <View 
+              <View
                 key={index}
                 style={[
                   styles.flowItem,
@@ -269,7 +271,7 @@ export default function AdminDelinquencyScreen({ navigation }: any) {
           <Text style={[styles.sectionTitle, { color: colors.text }]}>
             📋 Empresas Inadimplentes
           </Text>
-          
+
           {isLoading ? (
             <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
               Carregando...
@@ -395,7 +397,7 @@ export default function AdminDelinquencyScreen({ navigation }: any) {
               <Text style={[styles.modalSectionTitle, { color: colors.text }]}>
                 ⚡ Ações Disponíveis
               </Text>
-              
+
               <TouchableOpacity
                 style={[styles.actionButton, { backgroundColor: colors.warning + '20', borderColor: colors.warning }]}
                 onPress={() => {
@@ -438,8 +440,8 @@ export default function AdminDelinquencyScreen({ navigation }: any) {
                     `Tem certeza que deseja marcar "${selectedCompany?.name}" para exclusão? Esta ação pode ser revertida em até 30 dias.`,
                     [
                       { text: 'Cancelar', style: 'cancel' },
-                      { 
-                        text: 'Excluir', 
+                      {
+                        text: 'Excluir',
                         style: 'destructive',
                         onPress: () => selectedCompany && softDeleteMutation.mutate(selectedCompany.id)
                       },

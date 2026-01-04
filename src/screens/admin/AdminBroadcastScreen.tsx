@@ -9,6 +9,7 @@ import {
   Alert,
   Modal,
   FlatList,
+  Platform,
 } from 'react-native';
 import { useThemeCtx } from '../../theme/ThemeProvider';
 import { supabase } from '../../lib/supabase';
@@ -28,7 +29,7 @@ interface Company {
   status: string;
 }
 
-export default function AdminBroadcastScreen({ navigation }: any) {
+export default function AdminBroadcastScreen({ navigation, route }: any) {
   const { theme } = useThemeCtx();
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
@@ -36,17 +37,32 @@ export default function AdminBroadcastScreen({ navigation }: any) {
   const [priority, setPriority] = useState<'low' | 'normal' | 'high'>('normal');
   const [isBroadcast, setIsBroadcast] = useState(true);
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
-  
+
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showCompanyPicker, setShowCompanyPicker] = useState(false);
   const [sending, setSending] = useState(false);
 
+  // Parametros de navegação para pré-seleção
+  const preselectedCompanies = route?.params?.preselectedCompanies as string[] | undefined;
+  const segment = route?.params?.segment as string | undefined;
+
   useEffect(() => {
     loadTemplates();
     loadCompanies();
   }, []);
+
+  // Se recebeu empresas pré-selecionadas, ativar modo individual
+  useEffect(() => {
+    if (preselectedCompanies && preselectedCompanies.length > 0 && companies.length > 0) {
+      const matchedCompany = companies.find(c => c.id === preselectedCompanies[0]);
+      if (matchedCompany) {
+        setIsBroadcast(false);
+        setSelectedCompany(matchedCompany);
+      }
+    }
+  }, [preselectedCompanies, companies]);
 
   const loadTemplates = async () => {
     try {
@@ -77,9 +93,9 @@ export default function AdminBroadcastScreen({ navigation }: any) {
   };
 
   const useTemplate = (template: MessageTemplate) => {
-    setTitle(template.title);
-    setMessage(template.message);
-    setType(template.type as any);
+    setTitle(template.title || '');
+    setMessage(template.message || '');
+    setType((template.type as any) || 'info');
     setShowTemplates(false);
     Alert.alert('Template Carregado', 'Você pode editar o texto antes de enviar.');
   };
@@ -96,76 +112,88 @@ export default function AdminBroadcastScreen({ navigation }: any) {
     }
 
     const confirmMessage = isBroadcast
-      ? `Enviar mensagem para TODAS as ${companies.length} empresas?` 
+      ? `Enviar mensagem para TODAS as ${companies.length} empresas?`
       : `Enviar mensagem para "${selectedCompany?.name}"?`;
 
-    Alert.alert(
-      'Confirmar Envio',
-      confirmMessage,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Enviar',
-          onPress: async () => {
-            setSending(true);
-            try {
-              const { data: { user } } = await supabase.auth.getUser();
-              if (!user) throw new Error('Usuário não autenticado');
+    // Web-compatible confirmation
+    const confirmed = Platform.OS === 'web'
+      ? window.confirm(confirmMessage)
+      : await new Promise<boolean>((resolve) => {
+        Alert.alert(
+          'Confirmar Envio',
+          confirmMessage,
+          [
+            { text: 'Cancelar', style: 'cancel', onPress: () => resolve(false) },
+            { text: 'Enviar', onPress: () => resolve(true) },
+          ]
+        );
+      });
 
-              if (isBroadcast) {
-                // Enviar para todas as empresas
-                const messages = companies.map(company => ({
-                  admin_user_id: user.id,
-                  company_id: company.id,
-                  is_broadcast: true,
-                  title: title.trim(),
-                  message: message.trim(),
-                  type,
-                  priority,
-                  read: false,
-                }));
+    if (!confirmed) return;
 
-                const { error } = await supabase
-                  .from('admin_messages')
-                  .insert(messages);
+    setSending(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Usuário não autenticado');
 
-                if (error) throw error;
-                Alert.alert('Sucesso', `Mensagem enviada para ${companies.length} empresas!`);
-              } else {
-                // Enviar para empresa específica
-                const { error } = await supabase
-                  .from('admin_messages')
-                  .insert({
-                    admin_user_id: user.id,
-                    company_id: selectedCompany!.id,
-                    is_broadcast: false,
-                    title: title.trim(),
-                    message: message.trim(),
-                    type,
-                    priority,
-                    read: false,
-                  });
+      if (isBroadcast) {
+        // Enviar para todas as empresas
+        const messages = companies.map(company => ({
+          admin_user_id: user.id,
+          company_id: company.id,
+          is_broadcast: true,
+          title: title.trim(),
+          message: message.trim(),
+          type,
+          priority,
+          read: false,
+        }));
 
-                if (error) throw error;
-                Alert.alert('Sucesso', `Mensagem enviada para "${selectedCompany!.name}"!`);
-              }
+        console.log('[BROADCAST] Enviando para', companies.length, 'empresas');
+        const { error } = await supabase
+          .from('admin_messages')
+          .insert(messages);
 
-              // Limpar formulário
-              setTitle('');
-              setMessage('');
-              setType('info');
-              setPriority('normal');
-              navigation.goBack();
-            } catch (error) {
-              console.error('Erro ao enviar mensagem:', error);
-              Alert.alert('Erro', 'Não foi possível enviar a mensagem.');
-            } finally {
-              setSending(false);
-            }
-          },
-        },
-      ]
-    );
+        if (error) {
+          console.error('[BROADCAST] Erro:', error);
+          throw error;
+        }
+        Alert.alert('Sucesso', `Mensagem enviada para ${companies.length} empresas!`);
+      } else {
+        // Enviar para empresa específica
+        console.log('[BROADCAST] Enviando para empresa:', selectedCompany!.name);
+        const { error } = await supabase
+          .from('admin_messages')
+          .insert({
+            admin_user_id: user.id,
+            company_id: selectedCompany!.id,
+            is_broadcast: false,
+            title: title.trim(),
+            message: message.trim(),
+            type,
+            priority,
+            read: false,
+          });
+
+        if (error) {
+          console.error('[BROADCAST] Erro:', error);
+          throw error;
+        }
+        Alert.alert('Sucesso', `Mensagem enviada para "${selectedCompany!.name}"!`);
+      }
+
+      // Limpar formulário
+      setTitle('');
+      setMessage('');
+      setType('info');
+      setPriority('normal');
+      navigation.goBack();
+    } catch (error) {
+      console.error('Erro ao enviar mensagem:', error);
+      Alert.alert('Erro', 'Não foi possível enviar a mensagem. Verifique o console.');
+    } finally {
+      setSending(false);
+    }
   };
 
   const TypeButton = ({ label, value, icon }: { label: string; value: typeof type; icon: string }) => (
@@ -280,7 +308,7 @@ export default function AdminBroadcastScreen({ navigation }: any) {
         {/* Título e Mensagem */}
         <View style={[styles.section, { backgroundColor: theme.card }]}>
           <Text style={[styles.sectionTitle, { color: theme.text }]}>CONTEÚDO</Text>
-          
+
           <TextInput
             style={[styles.input, { backgroundColor: theme.background, color: theme.text, borderColor: theme.inputBorder }]}
             placeholder="Título da mensagem"
@@ -365,7 +393,7 @@ export default function AdminBroadcastScreen({ navigation }: any) {
               <Ionicons name="close" size={24} color={theme.text} />
             </TouchableOpacity>
           </View>
-          
+
           <FlatList
             data={templates}
             keyExtractor={(item) => item.id}
@@ -409,7 +437,7 @@ export default function AdminBroadcastScreen({ navigation }: any) {
               <Ionicons name="close" size={24} color={theme.text} />
             </TouchableOpacity>
           </View>
-          
+
           <FlatList
             data={companies}
             keyExtractor={(item) => item.id}
